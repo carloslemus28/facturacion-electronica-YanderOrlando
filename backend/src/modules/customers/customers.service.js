@@ -319,6 +319,16 @@ const validateCustomerData = (data) => {
     }
   }
 
+  if (documentType === 'DUI') {
+    const duiDigits = normalizeDigits(documentNumber);
+
+    if (!duiDigits || duiDigits.length !== 9) {
+      const error = new Error('El DUI debe contener exactamente 9 dígitos');
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
   if (nrc) {
   const nrcDigits = normalizeDigits(nrc);
 
@@ -450,7 +460,7 @@ const createCustomer = async ({ data, user }) => {
 
   const documentNumber = documentType === 'SIN_DOCUMENTO'
     ? null
-    : documentType === 'NIT'
+    : ['NIT', 'DUI'].includes(documentType)
       ? normalizeDigits(data.documentNumber)
       : normalizeText(data.documentNumber);
 
@@ -550,7 +560,7 @@ const updateCustomer = async (id, { data, user }) => {
 
   const documentNumber = documentType === 'SIN_DOCUMENTO'
     ? null
-    : documentType === 'NIT'
+    : ['NIT', 'DUI'].includes(documentType)
       ? normalizeDigits(data.documentNumber ?? customer.documentNumber)
       : normalizeText(data.documentNumber ?? customer.documentNumber);
 

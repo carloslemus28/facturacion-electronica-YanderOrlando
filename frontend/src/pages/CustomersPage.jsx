@@ -220,8 +220,9 @@ function CustomersPage() {
         nextForm.documentNumber = '';
       }
 
-      if (name === 'documentNumber' && prev.documentType === 'NIT') {
-        nextForm.documentNumber = onlyDigits(value).slice(0, 14);
+      if (name === 'documentNumber' && ['NIT', 'DUI'].includes(prev.documentType)) {
+        const maxLength = prev.documentType === 'NIT' ? 14 : 9;
+        nextForm.documentNumber = onlyDigits(value).slice(0, maxLength);
       }
 
       if (name === 'nrc') {
@@ -388,6 +389,10 @@ const handlePhoneCountryChange = (country) => {
       return 'El NIT debe contener exactamente 14 dígitos';
     }
 
+    if (form.documentType === 'DUI' && onlyDigits(form.documentNumber).length !== 9) {
+      return 'El DUI debe contener exactamente 9 dígitos';
+    }
+
     if (form.nrc.trim() && onlyDigits(form.nrc).length > 8) {
       return 'El NRC debe contener exactamente 8 dígitos';
     }
@@ -413,7 +418,7 @@ const handlePhoneCountryChange = (country) => {
       documentNumber:
         form.documentType === 'SIN_DOCUMENTO'
           ? ''
-          : form.documentType === 'NIT'
+          : ['NIT', 'DUI'].includes(form.documentType)
             ? onlyDigits(form.documentNumber)
             : form.documentNumber.trim(),
       nrc: onlyDigits(form.nrc),
@@ -718,7 +723,7 @@ const handlePhoneCountryChange = (country) => {
                     value={form.documentNumber}
                     onChange={handleChange}
                     disabled={form.documentType === 'SIN_DOCUMENTO'}
-                    maxLength={form.documentType === 'NIT' ? 14 : 30}
+                    maxLength={form.documentType === 'NIT' ? 14 : form.documentType === 'DUI' ? 9 : 30}
                     className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 disabled:bg-gray-100 disabled:cursor-not-allowed"
                     placeholder={
                       form.documentType === 'SIN_DOCUMENTO'
@@ -732,6 +737,12 @@ const handlePhoneCountryChange = (country) => {
                   {form.documentType === 'NIT' && (
                     <p className="text-xs text-gray-500 mt-1">
                       NIT: {onlyDigits(form.documentNumber).length}/14 dígitos.
+                    </p>
+                  )}
+
+                  {form.documentType === 'DUI' && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      DUI: {onlyDigits(form.documentNumber).length}/9 dígitos.
                     </p>
                   )}
                 </div>

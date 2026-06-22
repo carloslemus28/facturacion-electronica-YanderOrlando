@@ -162,37 +162,19 @@ const getDocumentTypeForReceiver = (documentType) => {
   return map[documentType] || null;
 };
 
-const formatExcludedSubjectDocumentNumber = (documentType, documentNumber) => {
+const formatReceiverDocumentNumber = (documentType, documentNumber) => {
   const typeCode = getDocumentTypeForReceiver(documentType);
   const rawValue = cleanString(documentNumber);
 
   if (!rawValue) return null;
 
-  // NIT: debe ir sin guiones, 14 dígitos
-  if (typeCode === '36') {
+  // NIT y DUI: Hacienda exige solo dígitos.
+  if (typeCode === '36' || typeCode === '13') {
     return cleanDigits(rawValue);
   }
 
-  // DUI: debe ir sin guion, 9 dígitos
-  if (typeCode === '13') {
-    return cleanDigits(rawValue);
-  }
-
-  // Carnet de residente: se limpia de espacios y guiones
-  if (typeCode === '02') {
-    return rawValue.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-  }
-
-  // Pasaporte: normalmente puede ser alfanumérico, sin espacios ni guiones
-  if (typeCode === '03') {
-    return rawValue.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-  }
-
-  // Otro documento: se envía alfanumérico limpio
-  if (typeCode === '37') {
-    return rawValue.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-  }
-
+  // Carné de residente, pasaporte y otro documento:
+  // se envían sin espacios, guiones ni caracteres especiales.
   return rawValue.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 };
 
@@ -579,7 +561,10 @@ const buildConsumerFinalReceiver = (customer) => {
 
   return {
     tipoDocumento: getDocumentTypeForReceiver(customer.documentType),
-    numDocumento: cleanString(customer.documentNumber),
+    numDocumento: formatReceiverDocumentNumber(
+      customer.documentType,
+      customer.documentNumber
+    ),
     nrc: cleanDigits(customer.nrc),
     nombre: cleanString(customer.name),
     codActividad: cleanString(customer.economicActivityCode),
@@ -630,7 +615,10 @@ const buildExportReceiver = (invoice) => {
     nombrePais: cleanString(customer.countryName || customer.country || customer.nombrePais || 'EL SALVADOR'),
     complemento: cleanAddressComplement(customer.addressComplement),
     tipoDocumento: getDocumentTypeForReceiver(customer.documentType),
-    numDocumento: cleanString(customer.documentNumber),
+    numDocumento: formatReceiverDocumentNumber(
+      customer.documentType,
+      customer.documentNumber
+    ),
     nombreComercial: cleanString(customer.commercialName || customer.name),
     tipoPersona: getExportPersonType(customer),
     descActividad: cleanString(customer.economicActivityName || 'Actividad económica del receptor'),
@@ -646,7 +634,7 @@ const buildExcludedSubject = (customer) => {
 
   return {
     tipoDocumento: getDocumentTypeForReceiver(customer.documentType),
-    numDocumento: formatExcludedSubjectDocumentNumber(
+    numDocumento: formatReceiverDocumentNumber(
       customer.documentType,
       customer.documentNumber
     ),
