@@ -583,15 +583,24 @@ const drawReceiverAndSaleInfo = (doc, invoice, y) => {
 };
 
 const getTableColumns = (invoice) => {
+  const isConsumerFinal = invoice.documentTypeCode === '01';
+
   if (companyUsesFuelTaxes(invoice)) {
     return [
       { key: 'quantity', title: 'Cant.', w: 36, align: 'right' },
-      { key: 'description', title: 'Descripción', w: 155, align: 'left' },
+      {
+        key: 'description',
+        title: 'Descripción',
+        w: isConsumerFinal ? 197 : 155,
+        align: 'left'
+      },
       { key: 'unitPrice', title: 'Valor unit.', w: 50, align: 'right' },
       { key: 'noSuj', title: 'No suj.', w: 44, align: 'right' },
       { key: 'exenta', title: 'Exenta', w: 44, align: 'right' },
       { key: 'gravada', title: 'Afecta', w: 50, align: 'right' },
-      { key: 'iva', title: 'IVA', w: 42, align: 'right' },
+      ...(!isConsumerFinal
+        ? [{ key: 'iva', title: 'IVA', w: 42, align: 'right' }]
+        : []),
       { key: 'fovial', title: 'FOVIAL', w: 42, align: 'right' },
       { key: 'cotrans', title: 'COTRANS', w: 44, align: 'right' },
       { key: 'total', title: 'Total', w: 57, align: 'right' }
@@ -600,12 +609,19 @@ const getTableColumns = (invoice) => {
 
   return [
     { key: 'quantity', title: 'Cant.', w: 42, align: 'right' },
-    { key: 'description', title: 'Descripción', w: 207, align: 'left' },
+    {
+      key: 'description',
+      title: 'Descripción',
+      w: isConsumerFinal ? 245 : 207,
+      align: 'left'
+    },
     { key: 'unitPrice', title: 'Valor unit.', w: 58, align: 'right' },
     { key: 'noSuj', title: 'No sujetas', w: 58, align: 'right' },
     { key: 'exenta', title: 'Exentas', w: 58, align: 'right' },
     { key: 'gravada', title: 'Afectas', w: 62, align: 'right' },
-    { key: 'iva', title: 'IVA', w: 38, align: 'right' },
+    ...(!isConsumerFinal
+      ? [{ key: 'iva', title: 'IVA', w: 38, align: 'right' }]
+      : []),
     { key: 'total', title: 'Total', w: 41, align: 'right' }
   ];
 };
@@ -737,15 +753,25 @@ const drawTotals = (doc, invoice, y) => {
   }
 
   const usesFuelTaxes = companyUsesFuelTaxes(invoice);
+  const isConsumerFinal = invoice.documentTypeCode === '01';
 
   const rows = [
     ['Ventas no sujetas', invoice.noSuj],
     ['Ventas exentas', invoice.exenta],
     ['Ventas afectas', invoice.gravada],
-    ['SUMAS', Number(invoice.noSuj || 0) + Number(invoice.exenta || 0) + Number(invoice.gravada || 0)],
-    ['13% de IVA', invoice.iva],
+    [
+      'SUMAS',
+      Number(invoice.noSuj || 0)
+        + Number(invoice.exenta || 0)
+        + Number(invoice.gravada || 0)
+    ],
+    ...(!isConsumerFinal
+      ? [['13% de IVA', invoice.iva]]
+      : []),
     ['Sub-Total', invoice.subtotal],
-    ['(-) IVA Retenido', Number(invoice.retention1 || 0) * -1],
+    ...(!isConsumerFinal
+      ? [['(-) IVA Retenido', Number(invoice.retention1 || 0) * -1]]
+      : []),
     ...(usesFuelTaxes ? [
       ['(+) FOVIAL', invoice.fovial],
       ['(+) COTRANS', invoice.cotrans]
