@@ -840,8 +840,8 @@ const updateGeneratedInvoice = async ({ id, data, user }) => {
     user: currentUser
   });
 
-  if (existingInvoice.status !== 'GENERADO') {
-    const error = new Error('Solo se pueden editar DTE en estado GENERADO');
+  if (!['GENERADO', 'RECHAZADO'].includes(existingInvoice.status)) {
+    const error = new Error('Solo se pueden editar DTE en estado GENERADO o RECHAZADO');
     error.statusCode = 400;
     throw error;
   }
@@ -1404,11 +1404,13 @@ const transmitInvoiceToHaciendaReal = async ({ id, user }) => {
   }
 
   const dteJsonService = require('../dte/dte-json.service');
-  const officialDteJson = dteJsonService.buildOfficialStandardDteJson(invoice);
-
   const transmittedAt = new Date();
 
   try {
+    // Esta validación se ejecuta antes de firmar o transmitir. Si falla, el
+    // catch guarda el error y conserva el DTE en GENERADO.
+    const officialDteJson = dteJsonService.buildOfficialStandardDteJson(invoice);
+
     const signed = await dteSignerService.signDteJson({
       nit: invoice.company.nit,
       dteJson: officialDteJson
@@ -1462,19 +1464,57 @@ const transmitInvoiceToHaciendaReal = async ({ id, user }) => {
       });
     }
 
+    const explicitValidationRejection = Boolean(
+      transmission.rejected &&
+      ['RECHAZADO', 'OBSERVADO'].includes(String(transmission.estado || '').toUpperCase()) &&
+      Number(transmission.httpStatus || 0) >= 400 &&
+      Number(transmission.httpStatus || 0) < 500
+    );
+
+    if (explicitValidationRejection) {
+      // Hacienda confirmó que el DTE tiene errores de validación. El estado
+      // operativo queda en GENERADO para corregirlo y retransmitirlo, sin
+      // perder la respuesta devuelta por Hacienda.
+      await invoice.update({
+        status: 'GENERADO',
+        signedJws: null,
+        signedAt: null,
+        validationStatus: 'ERROR',
+        validationErrorsJson: transmission.response || null,
+        transmittedAt,
+        acceptedAt: null,
+        rejectedAt: new Date(),
+        receptionSeal: null,
+        rejectionReason: transmission.rejectionReason || 'Hacienda rechazó el DTE',
+        mhResponseJson: {
+          modo: 'VALIDACION_HACIENDA_CON_ERRORES',
+          estado: transmission.estado,
+          httpStatus: transmission.httpStatus,
+          payload: transmission.payload,
+          response: transmission.response,
+          signerResponse: signed.signerResponse
+        },
+        mhObservationsJson: transmission.observations || null
+      });
+
+      const error = new Error(transmission.rejectionReason || 'Hacienda rechazó el DTE');
+      error.statusCode = 400;
+      error.mhResponse = transmission.response;
+      throw error;
+    }
+
+    // Si Hacienda no confirma aceptación ni rechazo de validación (por ejemplo,
+    // HTTP 5xx), no se debe retransmitir a ciegas: podría haberlo recibido.
     await invoice.update({
-      status: 'RECHAZADO',
-      signedJws: signed.signedJws,
-      signedAt: invoice.signedAt || new Date(),
+      status: 'FIRMADO',
       validationStatus: 'ERROR',
       validationErrorsJson: transmission.response || null,
       transmittedAt,
       acceptedAt: null,
-      rejectedAt: new Date(),
       receptionSeal: null,
-      rejectionReason: transmission.rejectionReason || 'Hacienda rechazó el DTE',
+      rejectionReason: transmission.rejectionReason || 'No se pudo confirmar el resultado de Hacienda',
       mhResponseJson: {
-        modo: 'TRANSMISION_REAL_RECHAZADA',
+        modo: 'PENDIENTE_VERIFICACION_HACIENDA',
         estado: transmission.estado,
         httpStatus: transmission.httpStatus,
         payload: transmission.payload,
@@ -1484,39 +1524,66 @@ const transmitInvoiceToHaciendaReal = async ({ id, user }) => {
       mhObservationsJson: transmission.observations || null
     });
 
-    const error = new Error(transmission.rejectionReason || 'Hacienda rechazó el DTE');
-    error.statusCode = 400;
-    error.mhResponse = transmission.response;
+    const error = new Error(
+      transmission.rejectionReason ||
+      'No se pudo confirmar el resultado de la transmisión con Hacienda'
+    );
+    error.statusCode = 502;
+    error.transmissionPendingVerification = true;
     throw error;
   } catch (error) {
-    if (!error.mhResponse && !error.signerResponse) {
-      await invoice.update({
-        validationStatus: 'ERROR',
-        validationErrorsJson: {
-          message: error.message
-        },
-        rejectionReason: error.message,
-        mhResponseJson: {
-          modo: 'ERROR_TRANSMISION_REAL',
-          message: error.message
-        }
-      });
-    } else if (error.signerResponse) {
-      await invoice.update({
-        validationStatus: 'ERROR',
-        validationErrorsJson: {
-          message: error.message,
-          signerResponse: error.signerResponse || null
-        },
-        rejectedAt: new Date(),
-        rejectionReason: error.message,
-        mhResponseJson: {
-          modo: 'ERROR_FIRMADOR',
-          message: error.message,
-          signerResponse: error.signerResponse || null
-        }
-      });
+    // Estos casos ya fueron almacenados antes de lanzar el error.
+    if (error.mhResponse || error.transmissionPendingVerification) {
+      throw error;
     }
+
+    // Un timeout o error de red tampoco permite confirmar si Hacienda recibió
+    // el DTE. Se mantiene FIRMADO hasta verificar el resultado.
+    if (error.haciendaResponse) {
+      await invoice.update({
+        status: 'FIRMADO',
+        validationStatus: 'ERROR',
+        validationErrorsJson: {
+          message: error.message,
+          haciendaResponse: error.haciendaResponse || null
+        },
+        transmittedAt,
+        acceptedAt: null,
+        receptionSeal: null,
+        rejectionReason: error.message,
+        mhResponseJson: {
+          modo: 'PENDIENTE_VERIFICACION_HACIENDA',
+          message: error.message,
+          haciendaResponse: error.haciendaResponse || null
+        },
+        mhObservationsJson: null
+      });
+
+      throw error;
+    }
+
+    // Errores locales o del firmador: no hubo transmisión confirmada; el DTE
+    // vuelve a GENERADO para corregirlo y firmarlo de nuevo.
+    await invoice.update({
+      status: 'GENERADO',
+      signedJws: null,
+      signedAt: null,
+      validationStatus: 'ERROR',
+      validationErrorsJson: {
+        message: error.message,
+        signerResponse: error.signerResponse || null
+      },
+      transmittedAt: null,
+      acceptedAt: null,
+      receptionSeal: null,
+      rejectionReason: error.message,
+      mhResponseJson: {
+        modo: error.signerResponse ? 'ERROR_FIRMADOR' : 'ERROR_VALIDACION_LOCAL',
+        message: error.message,
+        signerResponse: error.signerResponse || null
+      },
+      mhObservationsJson: null
+    });
 
     throw error;
   }

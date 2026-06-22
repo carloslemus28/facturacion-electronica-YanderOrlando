@@ -504,6 +504,10 @@ const getDocumentTypeOrder = (documentTypeCode) => {
 
       const message = error.response?.data?.message || 'No se pudo transmitir el DTE';
       toast.error(message);
+
+      // El backend conserva el resultado para mostrar la corrección requerida.
+      await loadInvoices();
+      await refreshSelectedInvoice(transmitTargetInvoice.id);
     } finally {
       setProcessingId(null);
     }
@@ -1633,11 +1637,30 @@ const renderEmailLogAttachments = (attachmentsJson) => {
                 </div>
               )}
 
-              {selectedInvoice.status === 'RECHAZADO' && (
+              {(selectedInvoice.status === 'RECHAZADO' || (
+                selectedInvoice.status === 'GENERADO' &&
+                selectedInvoice.validationStatus === 'ERROR'
+              )) && (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-900">
-                  <p className="font-semibold">Motivo de rechazo</p>
+                  <p className="font-semibold">
+                    {selectedInvoice.status === 'RECHAZADO'
+                      ? 'Motivo de rechazo'
+                      : 'Corrección requerida antes de transmitir'}
+                  </p>
                   <p>
                     {selectedInvoice.rejectionReason || 'Sin motivo registrado'}
+                  </p>
+                </div>
+              )}
+
+              {selectedInvoice.status === 'FIRMADO' && selectedInvoice.validationStatus === 'ERROR' && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900">
+                  <p className="font-semibold">Resultado pendiente de verificar</p>
+                  <p>
+                    {selectedInvoice.rejectionReason || 'No se pudo confirmar la respuesta de Hacienda.'}
+                  </p>
+                  <p className="mt-1">
+                    No lo reenvíe hasta consultar su estado en Hacienda.
                   </p>
                 </div>
               )}
@@ -2122,11 +2145,34 @@ const renderEmailLogAttachments = (attachmentsJson) => {
                           Código generación: {invoice.generationCode}
                         </p>
 
-                        {invoice.status === 'GENERADO' && (
+                        {invoice.status === 'GENERADO' && invoice.validationStatus === 'ERROR' && (
+                          <div className="mt-3 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-xs text-red-900">
+                            <p className="font-semibold">Corrección requerida</p>
+                            <p>
+                              Hacienda o el sistema reportó una observación. Edite el DTE, corrija los datos y vuelva a transmitirlo.
+                            </p>
+                            {invoice.rejectionReason && (
+                              <p className="mt-1 break-words">
+                                <strong>Detalle:</strong> {invoice.rejectionReason}
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {invoice.status === 'GENERADO' && invoice.validationStatus !== 'ERROR' && (
                           <div className="mt-3 bg-yellow-50 border border-yellow-200 rounded-xl px-3 py-2 text-xs text-yellow-900">
                             <p className="font-semibold">Pendiente de transmisión</p>
                             <p>
                               Este DTE está generado, pero aún no ha sido transmitido a Hacienda.
+                            </p>
+                          </div>
+                        )}
+
+                        {invoice.status === 'FIRMADO' && invoice.validationStatus === 'ERROR' && (
+                          <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-900">
+                            <p className="font-semibold">Pendiente de verificar</p>
+                            <p>
+                              No se pudo confirmar la respuesta de Hacienda. No reenvíe el DTE hasta verificar su estado.
                             </p>
                           </div>
                         )}
@@ -2201,7 +2247,7 @@ const renderEmailLogAttachments = (attachmentsJson) => {
                             Ver detalle
                           </button>
 
-                          {invoice.status === 'GENERADO' && (
+                          {['GENERADO', 'RECHAZADO'].includes(invoice.status) && (
                             <button
                               type="button"
                               onClick={() => navigate(`/invoices/generate?edit=${invoice.id}`)}
