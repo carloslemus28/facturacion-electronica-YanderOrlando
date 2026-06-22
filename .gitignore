@@ -1,0 +1,18 @@
+.env
+.env.*
+
+node_modules
+dist
+build
+
+# Certificados y llaves privadas del firmador
+firmador/certificado/*
+!firmador/certificado/.gitkeep
+*.crt
+*.cer
+*.pem
+*.p12
+*.pfx
+*.key
+
+.DS_Store
