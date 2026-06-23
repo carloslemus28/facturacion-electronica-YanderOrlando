@@ -52,6 +52,12 @@ const formatDateForExcel = (dateValue) => {
   return `${day}-${month}-${year} ${hours}:${minutes}:${seconds}`;
 };
 
+const removeHyphensForExcel = (value) => {
+  if (!value) return '';
+
+  return String(value).replace(/-/g, '');
+};
+
 const normalizePaymentStatus = (invoice) => {
   if (invoice.status === 'ANULADO') return 'Anulado';
 
@@ -210,6 +216,8 @@ const applyWorksheetStyle = (worksheet) => {
 
   worksheet.getColumn(8).numFmt = '#,##0.00';
   worksheet.getColumn(9).numFmt = '#,##0.00';
+  worksheet.getColumn(2).numFmt = '@';
+  worksheet.getColumn(3).numFmt = '@';
   worksheet.getColumn(10).numFmt = '#,##0.00';
   worksheet.getColumn(11).numFmt = '#,##0.00';
   worksheet.getColumn(12).numFmt = '#,##0.00';
@@ -258,10 +266,10 @@ const buildExcelReport = async ({ documentTypeCode, startDate, endDate, status }
     const customer = invoice.customer;
 
     worksheet.addRow([
-      formatDateForExcel(invoice.issuedAt),
-      invoice.controlNumber || '',
-      invoice.generationCode || '',
-      invoice.receptionSeal || '',
+  formatDateForExcel(invoice.issuedAt),
+  removeHyphensForExcel(invoice.controlNumber),
+  removeHyphensForExcel(invoice.generationCode),
+  invoice.receptionSeal || '',
 
       getCustomerNitOrDocument(customer),
       getCustomerNrc(customer),
