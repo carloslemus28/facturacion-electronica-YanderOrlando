@@ -595,6 +595,52 @@ const formatConsumerFinalDocumentNumber = (documentType, documentNumber) => {
   return rawValue;
 };
 
+const formatExcludedSubjectDocumentNumber = (
+  documentType,
+  documentNumber
+) => {
+  const documentTypeCode = getDocumentTypeForReceiver(documentType);
+  const rawValue = cleanString(documentNumber);
+
+  if (!rawValue) {
+    return null;
+  }
+
+  // DTE 14: el DUI debe enviarse con 9 dígitos, sin guion.
+  if (documentTypeCode === '13') {
+    const dui = cleanDigits(rawValue);
+
+    if (!dui || dui.length !== 9) {
+      const error = new Error(
+        'El DUI del sujeto excluido debe contener exactamente 9 dígitos.'
+      );
+
+      error.statusCode = 400;
+      throw error;
+    }
+
+    return dui;
+  }
+
+  // NIT del sujeto excluido: 14 dígitos, sin guiones.
+  if (documentTypeCode === '36') {
+    const nit = cleanDigits(rawValue);
+
+    if (!nit || nit.length !== 14) {
+      const error = new Error(
+        'El NIT del sujeto excluido debe contener exactamente 14 dígitos.'
+      );
+
+      error.statusCode = 400;
+      throw error;
+    }
+
+    return nit;
+  }
+
+  return formatReceiverDocumentNumber(documentType, rawValue);
+};
+
 const buildConsumerFinalReceiver = (customer) => {
   if (!customer?.id) {
     return null;
@@ -675,7 +721,7 @@ const buildExcludedSubject = (customer) => {
 
   return {
     tipoDocumento: getDocumentTypeForReceiver(customer.documentType),
-    numDocumento: formatConsumerFinalDocumentNumber(
+    numDocumento: formatExcludedSubjectDocumentNumber(
       customer.documentType,
       customer.documentNumber
     ),
