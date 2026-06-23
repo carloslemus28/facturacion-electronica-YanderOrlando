@@ -65,6 +65,7 @@ const formatDateTime = (value) => {
   if (!value) return '';
 
   return new Date(value).toLocaleString('es-SV', {
+    timeZone: process.env.APP_TIMEZONE || 'America/El_Salvador',
     dateStyle: 'short',
     timeStyle: 'short'
   });

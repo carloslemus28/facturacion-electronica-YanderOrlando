@@ -88,16 +88,47 @@ const cleanAddressComplement = (value) => {
   return text;
 };
 
-const formatDate = (value) => {
+const APP_TIME_ZONE = process.env.APP_TIMEZONE || 'America/El_Salvador';
+
+const getAppDateTimeParts = (value) => {
   const date = value ? new Date(value) : new Date();
 
-  return date.toISOString().slice(0, 10);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: APP_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date);
+
+  return Object.fromEntries(
+    parts
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, part.value])
+  );
+};
+
+const formatDate = (value) => {
+  const parts = getAppDateTimeParts(value);
+
+  return parts
+    ? `${parts.year}-${parts.month}-${parts.day}`
+    : null;
 };
 
 const formatTime = (value) => {
-  const date = value ? new Date(value) : new Date();
+  const parts = getAppDateTimeParts(value);
 
-  return date.toTimeString().slice(0, 8);
+  return parts
+    ? `${parts.hour}:${parts.minute}:${parts.second}`
+    : null;
 };
 
 const getDteVersion = (documentTypeCode) => {

@@ -45,35 +45,94 @@ const round4 = (value) => {
   return Number(Number(value || 0).toFixed(4));
 };
 
+const APP_TIME_ZONE = process.env.APP_TIMEZONE || 'America/El_Salvador';
+
+const getAppDateParts = (value = new Date()) => {
+  const date = value instanceof Date ? value : new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: APP_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date);
+
+  return Object.fromEntries(
+    parts
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, part.value])
+  );
+};
+
+const getAppDateKey = (value = new Date()) => {
+  const parts = getAppDateParts(value);
+
+  return parts
+    ? `${parts.year}-${parts.month}-${parts.day}`
+    : null;
+};
+
 const buildIssuedAtFromInput = (value) => {
   if (!value) return new Date();
 
-  if (String(value).includes('T')) {
-    const date = new Date(value);
+  const rawValue = String(value).trim();
+
+  if (rawValue.includes('T')) {
+    const date = new Date(rawValue);
 
     if (!Number.isNaN(date.getTime())) {
       return date;
     }
   }
 
-  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const match = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
 
   if (match) {
-    const [, year, month, day] = match;
+    /*
+      El formulario envía solo la fecha. Para documentos del día actual,
+      la hora de emisión debe ser el instante real de creación, no una
+      hora fija artificial. Esto evita que todos los DTE queden con la
+      misma hora al visualizarse o transmitirse.
+    */
+    if (rawValue === getAppDateKey()) {
+      return new Date();
+    }
 
-    return new Date(Date.UTC(
-      Number(year),
-      Number(month) - 1,
-      Number(day),
-      12,
-      0,
-      0
-    ));
+    /*
+      Para fechas distintas al día actual se conserva la fecha elegida.
+      El valor se expresa explícitamente en la zona fiscal de El Salvador
+      para evitar que Node/MySQL cambien el día por una conversión UTC.
+    */
+    return new Date(`${rawValue}T00:01:00-06:00`);
   }
 
-  const fallback = new Date(value);
+  const fallback = new Date(rawValue);
 
   return Number.isNaN(fallback.getTime()) ? new Date() : fallback;
+};
+
+const resolveIssuedAtForUpdate = ({ data, invoice }) => {
+  if (data.issuedAt) {
+    return buildIssuedAtFromInput(data.issuedAt);
+  }
+
+  if (!data.issuedAtDate) {
+    return invoice.issuedAt;
+  }
+
+  /*
+    Al editar sin cambiar la fecha, se conserva la hora original de
+    emisión. Solo se recalcula si el usuario realmente cambió la fecha.
+  */
+  if (String(data.issuedAtDate) === getAppDateKey(invoice.issuedAt)) {
+    return invoice.issuedAt;
+  }
+
+  return buildIssuedAtFromInput(data.issuedAtDate);
 };
 
 const isConsumerFinalInvoice = (documentTypeCode) => {
@@ -1030,7 +1089,7 @@ const updateGeneratedInvoice = async ({ id, data, user }) => {
 
     await invoice.update({
       customerId: effectiveCustomerId || null,
-      issuedAt: buildIssuedAtFromInput(data.issuedAtDate || data.issuedAt || invoice.issuedAt),
+      issuedAt: resolveIssuedAtForUpdate({ data, invoice }),
 
       relatedInvoiceId: relatedInvoice?.id || null,
       relatedControlNumber: relatedInvoice?.controlNumber || null,
@@ -1404,7 +1463,7 @@ const transmitInvoiceToHaciendaReal = async ({ id, user }) => {
   }
 
   const dteJsonService = require('../dte/dte-json.service');
-  const transmittedAt = new Date();
+  let transmittedAt = null;
 
   try {
     // Esta validación se ejecuta antes de firmar o transmitir. Si falla, el
@@ -1429,6 +1488,13 @@ const transmitInvoiceToHaciendaReal = async ({ id, user }) => {
       },
       mhObservationsJson: null
     });
+
+    /*
+      Registra la hora cuando realmente inicia el envío a Hacienda,
+      después de firmar el documento. Así la fecha de transmisión no
+      queda adelantada por el tiempo que tomó la firma.
+    */
+    transmittedAt = new Date();
 
     const transmission = await dteTransmissionService.transmitSignedDte({
       invoice,
