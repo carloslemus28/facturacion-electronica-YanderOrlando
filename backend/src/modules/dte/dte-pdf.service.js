@@ -627,7 +627,20 @@ const getTableColumns = (invoice) => {
   ];
 };
 
+const getItemDescriptionForPdf = (item) => {
+  const productName = safe(item?.product?.name);
+  const description = safe(item?.description);
+
+  if (productName && description) {
+    return `${productName} - ${description}`;
+  }
+
+  return productName || description;
+};
+
 const getItemValue = (item, key) => {
+  if (key === 'quantity') return quantity(item.quantity);
+  if (key === 'description') return getItemDescriptionForPdf(item);
   if (key === 'quantity') return quantity(item.quantity);
   if (key === 'description') return `${safe(item.code)} ${safe(item.description)}`.trim();
   if (key === 'unitPrice') return quantity(item.unitPrice);

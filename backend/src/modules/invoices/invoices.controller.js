@@ -1,3 +1,4 @@
+const emailsService = require('../emails/emails.service');
 const invoicesService = require('./invoices.service');
 
 const createGeneratedInvoice = async (req, res, next) => {
@@ -108,10 +109,56 @@ const transmitReal = async (req, res, next) => {
       user: req.user
     });
 
+    let automaticEmail = {
+      sent: false,
+      skipped: false,
+      message: null
+    };
+
+    const recipient = String(invoice.customer?.email || '').trim();
+
+    if (!recipient) {
+      automaticEmail = {
+        sent: false,
+        skipped: true,
+        message: 'El cliente no tiene correo registrado para el envío automático.'
+      };
+    } else {
+      try {
+        const email = await emailsService.sendInvoiceEmail({
+          id: invoice.id,
+          user: req.user,
+          to: recipient
+        });
+
+        automaticEmail = {
+          sent: true,
+          skipped: false,
+          recipient: email.recipient
+        };
+      } catch (emailError) {
+        /*
+          Hacienda ya aceptó el DTE. Un fallo SMTP no debe convertir
+          la transmisión fiscal en error ni revertir el documento.
+        */
+        console.error(
+          `⚠️ DTE ${invoice.id} aceptado por Hacienda, pero no se pudo enviar el correo automático: ${emailError.message}`
+        );
+
+        automaticEmail = {
+          sent: false,
+          skipped: false,
+          recipient,
+          message: emailError.message
+        };
+      }
+    }
+
     res.json({
       ok: true,
       message: 'DTE transmitido correctamente a Hacienda',
-      invoice
+      invoice,
+      automaticEmail
     });
   } catch (error) {
     next(error);

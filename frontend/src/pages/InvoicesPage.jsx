@@ -492,6 +492,20 @@ const getDocumentTypeOrder = (documentTypeCode) => {
 
       toast.success(data.message || 'DTE transmitido correctamente');
 
+      if (data.automaticEmail?.sent) {
+        toast.success(
+          `Correo enviado automáticamente a ${data.automaticEmail.recipient}`
+        );
+      } else if (data.automaticEmail?.skipped) {
+        toast.error(
+          'El DTE fue aceptado, pero el cliente no tiene correo registrado. Puede usar Re-Enviar correo.'
+        );
+      } else if (data.automaticEmail && !data.automaticEmail.sent) {
+        toast.error(
+          'El DTE fue aceptado, pero no se pudo enviar el correo automático. Puede usar Re-Enviar correo.'
+        );
+      }
+
       const invoiceId = transmitTargetInvoice.id;
 
       setTransmitModalOpen(false);
@@ -979,7 +993,7 @@ const renderEmailLogAttachments = (attachmentsJson) => {
                   className={`${buttonBase} bg-emerald-700 text-white hover:bg-emerald-800`}
                 >
                   <Mail size={17} />
-                  Enviar correo
+                  Reenviar correo
                 </button>
 
                 {canCreateReturnEvent(invoice) && (
