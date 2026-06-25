@@ -2087,13 +2087,10 @@ const renderEmailLogAttachments = (attachmentsJson) => {
               onChange={(event) => setStatusFilter(event.target.value)}
               className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800 bg-white"
             >
-              <option value="">Todos los estados</option>
-              <option value="GENERADO">Generado</option>
-              <option value="FIRMADO">Firmado</option>
-              <option value="TRANSMITIDO">Transmitido</option>
-              <option value="ACEPTADO">Aceptado</option>
-              <option value="RECHAZADO">Rechazado</option>
-              <option value="ANULADO">Anulado</option>
+            <option value="">Todos los estados</option>
+            <option value="GENERADO">Generado</option>
+            <option value="ACEPTADO">Aceptado</option>
+            <option value="ANULADO">Anulado</option>
             </select>
 
             <select

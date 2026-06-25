@@ -65,12 +65,6 @@ function DashboardPage() {
       icon: Clock
     },
     {
-      title: 'DTE transmitidos',
-      value: summary?.transmitted || 0,
-      description: 'Documentos enviados a Hacienda',
-      icon: Send
-    },
-    {
       title: 'DTE aceptados',
       value: summary?.accepted || 0,
       description: 'Con sello de recepción',
