@@ -39,7 +39,9 @@ const updateGeneratedInvoice = async (req, res, next) => {
 const listInvoices = async (req, res, next) => {
   try {
     const invoices = await invoicesService.listInvoices({
-      user: req.user
+      user: req.user,
+      startDate: req.query.startDate,
+      endDate: req.query.endDate
     });
 
     res.set('Cache-Control', 'no-store');

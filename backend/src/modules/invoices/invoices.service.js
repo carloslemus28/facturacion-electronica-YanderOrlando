@@ -109,6 +109,79 @@ const getCurrentMonthIssuedAtRange = (value = new Date()) => {
   };
 };
 
+const parseDateFilter = (value, fieldName) => {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const rawValue = String(value).trim();
+  const dateMatch = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!dateMatch) {
+    const error = new Error(`${fieldName} debe tener el formato YYYY-MM-DD`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const date = new Date(`${rawValue}T00:00:00-06:00`);
+
+  /*
+    Evita fechas inexistentes como 2026-02-30. JavaScript las ajusta
+    automáticamente al mes siguiente si no se validan de forma explícita.
+  */
+  if (Number.isNaN(date.getTime()) || getAppDateKey(date) !== rawValue) {
+    const error = new Error(`${fieldName} no es una fecha válida`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return {
+    key: rawValue,
+    date
+  };
+};
+
+const getIssuedAtRangeForList = ({ startDate, endDate }) => {
+  const parsedStartDate = parseDateFilter(startDate, 'La fecha inicial');
+  const parsedEndDate = parseDateFilter(endDate, 'La fecha final');
+
+  /*
+    Sin filtros explícitos se mantiene la bandeja operativa del mes vigente.
+    Los DTE de períodos anteriores se consultan únicamente al indicar fechas.
+  */
+  if (!parsedStartDate && !parsedEndDate) {
+    return getCurrentMonthIssuedAtRange();
+  }
+
+  if (
+    parsedStartDate &&
+    parsedEndDate &&
+    parsedStartDate.date.getTime() > parsedEndDate.date.getTime()
+  ) {
+    const error = new Error('La fecha inicial no puede ser mayor que la fecha final');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const range = {};
+
+  if (parsedStartDate) {
+    range[Op.gte] = parsedStartDate.date;
+  }
+
+  if (parsedEndDate) {
+    /*
+      El límite superior es exclusivo: incluye todo el día seleccionado,
+      incluso documentos emitidos durante las últimas horas de la fecha final.
+    */
+    range[Op.lt] = new Date(
+      parsedEndDate.date.getTime() + (24 * 60 * 60 * 1000)
+    );
+  }
+
+  return range;
+};
+
 const buildIssuedAtFromInput = (value) => {
   if (!value) return new Date();
 
@@ -1267,7 +1340,7 @@ const attachReturnEventsToInvoices = async (invoices) => {
   return invoices;
 };
 
-const listInvoices = async ({ user }) => {
+const listInvoices = async ({ user, startDate, endDate }) => {
   const currentUser = await resolveUserContext(user);
 
   if (!currentUser?.company) {
@@ -1279,7 +1352,10 @@ const listInvoices = async ({ user }) => {
   const invoices = await Invoice.findAll({
     where: {
       companyId: currentUser.company.id,
-      issuedAt: getCurrentMonthIssuedAtRange()
+      issuedAt: getIssuedAtRangeForList({
+        startDate,
+        endDate
+      })
     },
     include: [
       {

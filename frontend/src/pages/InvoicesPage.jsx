@@ -57,6 +57,31 @@ const documentTypeNames = {
 };
 const RETURN_EVENT_FEATURE_ENABLED = import.meta.env.VITE_RETURN_EVENT_FEATURE_ENABLED === 'true';
 
+const ITEMS_PER_PAGE = 15;
+
+const getCurrentMonthDateRange = (value = new Date()) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/El_Salvador',
+    year: 'numeric',
+    month: '2-digit'
+  }).formatToParts(value);
+
+  const dateParts = Object.fromEntries(
+    parts
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, part.value])
+  );
+
+  const year = Number(dateParts.year);
+  const month = Number(dateParts.month);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+  return {
+    startDate: `${dateParts.year}-${dateParts.month}-01`,
+    endDate: `${dateParts.year}-${dateParts.month}-${String(lastDay).padStart(2, '0')}`
+  };
+};
+
 const getFileNameFromDisposition = (contentDisposition, fallbackName) => {
   if (!contentDisposition) return fallbackName;
 
@@ -95,6 +120,9 @@ function InvoicesPage() {
   const [q, setQ] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [documentTypeFilter, setDocumentTypeFilter] = useState('');
+  const [dateRange, setDateRange] = useState(getCurrentMonthDateRange);
+  const [appliedDateRange, setAppliedDateRange] = useState(getCurrentMonthDateRange);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const [loading, setLoading] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -136,19 +164,53 @@ function InvoicesPage() {
   const [returnTransmitNow, setReturnTransmitNow] = useState(true);
   const navigate = useNavigate();
 
-  const loadInvoices = async () => {
+  const loadInvoices = async (range = appliedDateRange) => {
     try {
       setLoading(true);
+      setCurrentPage(1);
 
-      const data = await getInvoicesRequest();
+      const data = await getInvoicesRequest({
+        startDate: range.startDate,
+        endDate: range.endDate
+      });
 
       setInvoices(data.invoices || []);
     } catch (error) {
       console.error('Error cargando DTE:', error);
-      toast.error('No se pudieron cargar los documentos');
+
+      const message = error.response?.data?.message || 'No se pudieron cargar los documentos';
+      toast.error(message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const applyDateRange = async () => {
+    if (!dateRange.startDate || !dateRange.endDate) {
+      toast.error('Debe seleccionar la fecha inicial y la fecha final');
+      return;
+    }
+
+    if (dateRange.startDate > dateRange.endDate) {
+      toast.error('La fecha inicial no puede ser mayor que la fecha final');
+      return;
+    }
+
+    const nextRange = {
+      startDate: dateRange.startDate,
+      endDate: dateRange.endDate
+    };
+
+    setAppliedDateRange(nextRange);
+    await loadInvoices(nextRange);
+  };
+
+  const resetToCurrentMonth = async () => {
+    const currentMonthRange = getCurrentMonthDateRange();
+
+    setDateRange(currentMonthRange);
+    setAppliedDateRange(currentMonthRange);
+    await loadInvoices(currentMonthRange);
   };
 
   useEffect(() => {
@@ -173,6 +235,10 @@ function InvoicesPage() {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [invoices]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [q, statusFilter, documentTypeFilter]);
 
   useEffect(() => {
     return () => {
@@ -268,6 +334,22 @@ const getDocumentTypeOrder = (documentTypeCode) => {
 
     return getInvoiceSequence(b) - getInvoiceSequence(a);
   });
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredInvoices.length / ITEMS_PER_PAGE)
+  );
+  const visiblePage = Math.min(currentPage, totalPages);
+  const pageStartIndex = (visiblePage - 1) * ITEMS_PER_PAGE;
+  const paginatedInvoices = filteredInvoices.slice(
+    pageStartIndex,
+    pageStartIndex + ITEMS_PER_PAGE
+  );
+  const showingFrom = filteredInvoices.length === 0 ? 0 : pageStartIndex + 1;
+  const showingTo = Math.min(
+    pageStartIndex + ITEMS_PER_PAGE,
+    filteredInvoices.length
+  );
 
   const generatedCount = invoices.filter((invoice) => invoice.status === 'GENERADO').length;
   const acceptedCount = invoices.filter((invoice) => invoice.status === 'ACEPTADO').length;
@@ -2027,13 +2109,13 @@ const renderEmailLogAttachments = (attachmentsJson) => {
               Documentos emitidos
             </h2>
             <p className="text-gray-600 mt-1">
-              Consulte DTE generados, aceptados o anulados del mes.
+              Consulte DTE del mes actual o de períodos anteriores mediante el filtro de fechas.
             </p>
           </div>
         </div>
 
         <button
-          onClick={loadInvoices}
+          onClick={() => loadInvoices()}
           className="inline-flex items-center justify-center gap-2 bg-white border rounded-xl px-4 py-3 text-gray-700 hover:bg-gray-50"
         >
           <RefreshCcw size={18} />
@@ -2107,6 +2189,60 @@ const renderEmailLogAttachments = (attachmentsJson) => {
             </select>
           </div>
 
+          <div className="grid md:grid-cols-[1fr_1fr_auto_auto] gap-3 mb-5">
+            <label className="block">
+              <span className="block text-sm font-medium text-gray-700 mb-1">
+                Fecha inicial
+              </span>
+              <input
+                type="date"
+                value={dateRange.startDate}
+                onChange={(event) => setDateRange((current) => ({
+                  ...current,
+                  startDate: event.target.value
+                }))}
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800"
+              />
+            </label>
+
+            <label className="block">
+              <span className="block text-sm font-medium text-gray-700 mb-1">
+                Fecha final
+              </span>
+              <input
+                type="date"
+                value={dateRange.endDate}
+                onChange={(event) => setDateRange((current) => ({
+                  ...current,
+                  endDate: event.target.value
+                }))}
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800"
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={applyDateRange}
+              disabled={loading}
+              className="self-end inline-flex items-center justify-center gap-2 bg-blue-900 text-white rounded-xl px-4 py-3 font-semibold hover:bg-blue-800 disabled:opacity-70"
+            >
+              Buscar fechas
+            </button>
+
+            <button
+              type="button"
+              onClick={resetToCurrentMonth}
+              disabled={loading}
+              className="self-end inline-flex items-center justify-center gap-2 border rounded-xl px-4 py-3 text-gray-700 hover:bg-gray-50 disabled:opacity-70"
+            >
+              Mes actual
+            </button>
+          </div>
+
+          <p className="text-xs text-gray-500 mb-5">
+            Período consultado: {appliedDateRange.startDate} al {appliedDateRange.endDate}
+          </p>
+
           {loading ? (
             <div className="text-center py-10">
               <Loader2 className="animate-spin mx-auto text-blue-900" size={32} />
@@ -2120,7 +2256,7 @@ const renderEmailLogAttachments = (attachmentsJson) => {
                 </p>
               )}
 
-              {filteredInvoices.map((invoice) => (
+              {paginatedInvoices.map((invoice) => (
                 <article
                   key={invoice.id}
                   className="border rounded-xl p-4 hover:bg-gray-50 transition"
@@ -2280,9 +2416,41 @@ const renderEmailLogAttachments = (attachmentsJson) => {
               ))}
             </div>
           )}
+
+          {!loading && filteredInvoices.length > 0 && (
+            <div className="mt-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-t pt-4">
+              <p className="text-sm text-gray-600">
+                Mostrando {showingFrom}–{showingTo} de {filteredInvoices.length} documento(s)
+              </p>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={visiblePage === 1}
+                  className="border rounded-xl px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Anterior
+                </button>
+
+                <span className="text-sm text-gray-600 px-2">
+                  Página {visiblePage} de {totalPages}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  disabled={visiblePage === totalPages}
+                  className="border rounded-xl px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        
+
       </section>
     </div>
   );
