@@ -2027,7 +2027,7 @@ const renderEmailLogAttachments = (attachmentsJson) => {
               Documentos emitidos
             </h2>
             <p className="text-gray-600 mt-1">
-              Consulte DTE generados, transmitidos, aceptados, rechazados, anulados o pendientes.
+              Consulte DTE generados, aceptados o anulados del mes.
             </p>
           </div>
         </div>

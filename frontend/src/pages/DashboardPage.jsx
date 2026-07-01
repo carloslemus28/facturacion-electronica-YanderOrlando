@@ -79,7 +79,7 @@ function DashboardPage() {
     {
       title: 'Total facturado',
       value: formatMoney(summary?.totalAmount || 0),
-      description: 'Monto total de documentos registrados',
+      description: 'Monto total de documentos del mes',
       icon: FileText
     }
   ];
@@ -146,7 +146,7 @@ function DashboardPage() {
       <section className="grid xl:grid-cols-[1fr_360px] gap-6 mt-8">
         <div className="bg-white rounded-2xl border shadow-sm p-5">
           <h3 className="text-lg font-bold text-gray-900">
-            Últimos documentos emitidos
+            Últimos documentos emitidos del mes
           </h3>
 
           <div className="mt-4 space-y-3">
@@ -195,7 +195,7 @@ function DashboardPage() {
 
         <aside className="bg-white rounded-2xl border shadow-sm p-5 h-fit">
           <h3 className="text-lg font-bold text-gray-900">
-            Resumen financiero
+            Resumen financiero del mes
           </h3>
 
           <div className="mt-4 space-y-3 text-sm">
