@@ -646,7 +646,21 @@ const submitInvalidate = async () => {
 
     toast.success(data.message || 'DTE anulado correctamente');
 
-    const invoiceId = invalidateTargetInvoice.id;
+if (data.automaticEmail?.sent) {
+  toast.success(
+    `Correo de anulación enviado automáticamente a ${data.automaticEmail.recipient}`
+  );
+} else if (data.automaticEmail?.skipped) {
+  toast.error(
+    'El DTE fue anulado, pero el cliente no tiene correo registrado. Puede usar Reenviar correo.'
+  );
+} else if (data.automaticEmail && !data.automaticEmail.sent) {
+  toast.error(
+    'El DTE fue anulado, pero no se pudo enviar el correo automático. Puede usar Reenviar correo.'
+  );
+}
+
+const invoiceId = invalidateTargetInvoice.id;
 
     setInvalidateModalOpen(false);
     setInvalidateTargetInvoice(null);
@@ -983,7 +997,7 @@ const renderEmailLogAttachments = (attachmentsJson) => {
                   className={`${buttonBase} bg-slate-700 text-white hover:bg-slate-800`}
                 >
                   {isInvalidationJsonProcessing ? <Loader2 className="animate-spin" size={17} /> : <Code2 size={17} />}
-                  JSON anulación
+                  JSON anulado
                 </button>
 
                 <button
@@ -1033,7 +1047,7 @@ const renderEmailLogAttachments = (attachmentsJson) => {
                   className={`${buttonBase} bg-slate-700 text-white hover:bg-slate-800`}
                 >
                   {isInvalidationPdfProcessing ? <Loader2 className="animate-spin" size={17} /> : <FileText size={17} />}
-                  PDF anulación
+                  PDF anulado
                 </button>
 
                 <button
@@ -1110,7 +1124,7 @@ const renderEmailLogAttachments = (attachmentsJson) => {
                 className={`${buttonBase} bg-emerald-700 text-white hover:bg-emerald-800`}
               >
                 <Mail size={17} />
-                Enviar correo
+                Reenviar correo
               </button>
             )}
 

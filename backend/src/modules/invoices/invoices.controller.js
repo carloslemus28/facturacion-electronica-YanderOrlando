@@ -175,10 +175,56 @@ const invalidateReal = async (req, res, next) => {
       reason: req.body.reason
     });
 
+    let automaticEmail = {
+      sent: false,
+      skipped: false,
+      message: null
+    };
+
+    const recipient = String(invoice.customer?.email || '').trim();
+
+    if (!recipient) {
+      automaticEmail = {
+        sent: false,
+        skipped: true,
+        message: 'El cliente no tiene correo registrado para el envío automático.'
+      };
+    } else {
+      try {
+        const email = await emailsService.sendInvoiceEmail({
+          id: invoice.id,
+          user: req.user,
+          to: recipient
+        });
+
+        automaticEmail = {
+          sent: true,
+          skipped: false,
+          recipient: email.recipient
+        };
+      } catch (emailError) {
+        /*
+          Hacienda ya aceptó la anulación. Un fallo SMTP no debe convertir
+          la anulación fiscal en error ni revertir el documento.
+        */
+        console.error(
+          `⚠️ DTE ${invoice.id} anulado ante Hacienda, pero no se pudo enviar el correo automático: ${emailError.message}`
+        );
+
+        automaticEmail = {
+          sent: false,
+          skipped: false,
+          recipient,
+          message: emailError.message
+        };
+      }
+    }
+
     res.json({
       ok: true,
       message: 'DTE anulado correctamente ante Hacienda',
-      invoice
+      invoice,
+      automaticEmail
     });
   } catch (error) {
     next(error);
