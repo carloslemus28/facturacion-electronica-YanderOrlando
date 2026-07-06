@@ -469,8 +469,8 @@ const validateCustomerForDocumentType = ({ documentTypeCode, customer }) => {
   }
 
   if (documentTypeCode === '03') {
-    if (customer.documentType !== 'NIT' || !customer.documentNumber) {
-      const error = new Error('Para generar CCF, el cliente debe tener NIT registrado');
+    if (!['NIT', 'DUI'].includes(customer.documentType) || !customer.documentNumber) {
+      const error = new Error('Para generar CCF, el cliente debe tener NIT o DUI registrado');
       error.statusCode = 400;
       throw error;
     }
@@ -489,8 +489,8 @@ const validateCustomerForDocumentType = ({ documentTypeCode, customer }) => {
   }
 
   if (documentTypeCode === '05') {
-    if (customer.documentType !== 'NIT' || !customer.documentNumber) {
-      const error = new Error('Para generar Nota de Crédito, el cliente relacionado debe tener NIT registrado');
+    if (!['NIT', 'DUI'].includes(customer.documentType) || !customer.documentNumber) {
+      const error = new Error('Para generar Nota de Crédito, el cliente relacionado debe tener NIT o DUI registrado');
       error.statusCode = 400;
       throw error;
     }

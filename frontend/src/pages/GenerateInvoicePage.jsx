@@ -144,7 +144,7 @@ const hasDocument = (customer) => {
 
 const hasCcfData = (customer) => {
   return Boolean(
-    customer?.documentType === 'NIT' &&
+    ['NIT', 'DUI'].includes(customer?.documentType) &&
     customer?.documentNumber &&
     customer?.nrc &&
     customer?.economicActivityCode &&
@@ -522,7 +522,7 @@ function GenerateInvoicePage() {
     }
 
     if (documentTypeCode === '03') {
-      return 'Para CCF, el cliente debe tener NIT, NRC y actividad económica registrada.';
+      return 'Para CCF, el cliente debe tener NIT o DUI, NRC y actividad económica registrada.';
     }
 
     if (documentTypeCode === '05') {
@@ -544,7 +544,7 @@ function GenerateInvoicePage() {
     if (!selectedCustomer) return '';
 
     if ((documentTypeCode === '03' || documentTypeCode === '05') && !hasCcfData(selectedCustomer)) {
-      return 'Este cliente no tiene completos los datos para CCF: NIT, NRC y actividad económica.';
+      return 'Este cliente no tiene completos los datos para CCF: NIT o DUI, NRC y actividad económica.';
     }
 
     if ((documentTypeCode === '11' || documentTypeCode === '14') && !hasDocument(selectedCustomer)) {
@@ -826,7 +826,7 @@ function GenerateInvoicePage() {
     }
 
     if ((documentTypeCode === '03' || documentTypeCode === '05') && !hasCcfData(selectedCustomer)) {
-      return 'El cliente no tiene completos los datos para CCF: NIT, NRC y actividad económica';
+      return 'El cliente no tiene completos los datos para CCF: NIT o DUI, NRC y actividad económica';
     }
 
     if ((documentTypeCode === '11' || documentTypeCode === '14') && !hasDocument(selectedCustomer)) {

@@ -217,7 +217,7 @@ const inferCustomerType = (data) => {
   }
 
   if (
-    documentType === 'NIT' &&
+    ['NIT', 'DUI'].includes(documentType) &&
     documentNumber &&
     nrc &&
     economicActivityCode &&
