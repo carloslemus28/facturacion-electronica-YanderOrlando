@@ -64,6 +64,38 @@ const cleanPhone = (value) => {
   return digits;
 };
 
+const cleanEmail = (value) => {
+  const email = cleanString(value);
+
+  if (!email) return null;
+
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+};
+
+const getContactPhone = (...values) => {
+  for (const value of values) {
+    const phone = cleanPhone(value);
+
+    if (phone) {
+      return phone;
+    }
+  }
+
+  return null;
+};
+
+const getContactEmail = (...values) => {
+  for (const value of values) {
+    const email = cleanEmail(value);
+
+    if (email) {
+      return email;
+    }
+  }
+
+  return null;
+};
+
 const cleanCatalogCode = (value, length = 2) => {
   const digits = cleanDigits(value);
 
@@ -1348,6 +1380,39 @@ const buildInvalidationJson = (invoice) => {
         responsibleName
       );
 
+  const documentPhone = getContactPhone(
+    customer.phone,
+    customer.phoneNationalNumber,
+    customer.phoneDialCode && customer.phoneNationalNumber
+      ? `${customer.phoneDialCode}${customer.phoneNationalNumber}`
+      : null,
+    company.phone
+  );
+
+  const documentEmail = getContactEmail(
+    customer.email,
+    company.email,
+    process.env.SMTP_FROM_EMAIL
+  );
+
+  if (!documentPhone) {
+    const error = new Error(
+      'No se puede anular el DTE porque el evento de anulación requiere teléfono en el bloque documento. Actualice el teléfono del cliente o de la empresa antes de anular.'
+    );
+
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!documentEmail) {
+    const error = new Error(
+      'No se puede anular el DTE porque el evento de anulación requiere correo electrónico válido en el bloque documento. Actualice el correo del cliente o de la empresa antes de anular.'
+    );
+
+    error.statusCode = 400;
+    throw error;
+  }
+
   return {
     identificacion: {
       version: getInvalidationEventVersion(),
@@ -1378,7 +1443,9 @@ const buildInvalidationJson = (invoice) => {
       codigoGeneracionR: null,
       tipoDocumento: customerDocumentType,
       numDocumento: customerDocumentNumber,
-      nombre: cleanString(customer.name)
+      nombre: cleanString(customer.name),
+      telefono: documentPhone,
+      correo: documentEmail
     },
     motivo: {
       tipoAnulacion: getInvalidationTypeCode(),
