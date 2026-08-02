@@ -1,16 +1,49 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('./database');
 
+const TABLE_DOES_NOT_EXIST_CODES = new Set([
+  'ER_NO_SUCH_TABLE',
+  'ER_BAD_TABLE_ERROR'
+]);
+
+const tableExists = async (tableName) => {
+  const [rows] = await sequelize.query(
+    `SELECT TABLE_NAME
+       FROM INFORMATION_SCHEMA.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+      LIMIT 1`,
+    { replacements: [tableName] }
+  );
+
+  return Array.isArray(rows) && rows.length > 0;
+};
+
 const ensureColumn = async ({ tableName, columnName, definition }) => {
   const queryInterface = sequelize.getQueryInterface();
-  const table = await queryInterface.describeTable(tableName);
 
-  if (table[columnName]) {
+  if (!(await tableExists(tableName))) {
     return false;
   }
 
-  await queryInterface.addColumn(tableName, columnName, definition);
-  return true;
+  try {
+    const table = await queryInterface.describeTable(tableName);
+
+    if (table[columnName]) {
+      return false;
+    }
+
+    await queryInterface.addColumn(tableName, columnName, definition);
+    return true;
+  } catch (error) {
+    const code = error?.original?.code || error?.parent?.code || error?.code;
+
+    if (TABLE_DOES_NOT_EXIST_CODES.has(code)) {
+      return false;
+    }
+
+    throw error;
+  }
 };
 
 const ensureRuntimeSchema = async () => {

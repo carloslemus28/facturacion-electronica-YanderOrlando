@@ -13,8 +13,9 @@ const startServer = async () => {
 
   loadModels();
 
+  await ensureRuntimeSchema({ phase: 'before-sync' });
   await sequelize.sync();
-  await ensureRuntimeSchema();
+  await ensureRuntimeSchema({ phase: 'after-sync' });
 
   await seedSecurityData();
 
