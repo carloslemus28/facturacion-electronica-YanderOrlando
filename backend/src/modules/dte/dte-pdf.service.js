@@ -141,7 +141,6 @@ const drawLogoPlaceholder = (doc, x, y, width, height) => {
 
 const drawAdaptiveLogo = (doc, logoBuffer, x, y, maxWidth, maxHeight) => {
   if (!logoBuffer) {
-    drawLogoPlaceholder(doc, x, y, maxWidth, maxHeight);
     return;
   }
 
@@ -167,7 +166,7 @@ const drawAdaptiveLogo = (doc, logoBuffer, x, y, maxWidth, maxHeight) => {
       height: drawHeight
     });
   } catch (error) {
-    drawLogoPlaceholder(doc, x, y, maxWidth, maxHeight);
+    return;
   }
 };
 
@@ -244,6 +243,40 @@ const getDteVersion = (documentTypeCode) => {
 
 const getEnvironmentName = (environment) => {
   return environment === 'PRODUCTION' ? 'PRODUCCIÓN' : 'PRUEBAS';
+};
+
+const getEnvironmentCode = (environment) => {
+  return environment === 'PRODUCTION' ? '01' : '00';
+};
+
+const formatPublicQueryDate = (value) => {
+  const date = value ? new Date(value) : new Date();
+  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: process.env.APP_TIMEZONE || 'America/El_Salvador',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(safeDate);
+
+  const values = Object.fromEntries(
+    parts
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, part.value])
+  );
+
+  return `${values.year}-${values.month}-${values.day}`;
+};
+
+const buildPublicQueryUrl = ({ invoice, generationCode, issuedAt }) => {
+  const params = new URLSearchParams({
+    ambiente: getEnvironmentCode(invoice.company?.environment),
+    codGen: safe(generationCode || invoice.generationCode),
+    fechaEmi: formatPublicQueryDate(issuedAt || invoice.issuedAt)
+  });
+
+  return `https://admin.factura.gob.sv/consultaPublica?${params.toString()}`;
 };
 
 const getModelName = () => 'PREVIO';
@@ -358,19 +391,22 @@ const drawHeader = async (doc, invoice) => {
 
   drawBox(doc, x, y, PAGE.contentWidth, 152);
 
-const logoBuffer = imageBufferFromDataUrl(company.logoDataUrl);
+const shouldDrawLogo = company.useLogoInPdf !== false && Boolean(company.logoDataUrl);
+const logoBuffer = shouldDrawLogo ? imageBufferFromDataUrl(company.logoDataUrl) : null;
 
-drawAdaptiveLogo(
-  doc,
-  logoBuffer,
-  x + LOGO_BOX.xOffset,
-  y + LOGO_BOX.yOffset,
-  LOGO_BOX.width,
-  LOGO_BOX.height
-);
+if (logoBuffer) {
+  drawAdaptiveLogo(
+    doc,
+    logoBuffer,
+    x + LOGO_BOX.xOffset,
+    y + LOGO_BOX.yOffset,
+    LOGO_BOX.width,
+    LOGO_BOX.height
+  );
+}
 
-const issuerInfoX = x + 146;
-const issuerInfoWidth = 168;
+const issuerInfoX = logoBuffer ? x + 146 : x + 10;
+const issuerInfoWidth = logoBuffer ? 168 : 304;
 
 drawText(doc, company.commercialName || company.legalName, issuerInfoX, y + 12, {
   width: issuerInfoWidth,
@@ -405,15 +441,13 @@ drawText(doc, company.legalName, issuerInfoX, y + 43, {
   });
   drawLabelValue(doc, 'Tel.', company.phone, x + 190, y + 126, 24, 90, { size: 6.4 });
 
-  const qrPayload = {
-    numeroControl: invoice.controlNumber,
-    codigoGeneracion: invoice.generationCode,
-    selloRecepcion: invoice.receptionSeal,
-    estado: invoice.status,
-    fechaEmision: invoice.issuedAt
-  };
+  const qrUrl = buildPublicQueryUrl({
+    invoice,
+    generationCode: invoice.generationCode,
+    issuedAt: invoice.issuedAt
+  });
 
-  const qrBuffer = await buildQrBuffer(qrPayload);
+  const qrBuffer = await buildQrBuffer(qrUrl);
 
   drawBox(doc, x + 324, y + 12, 82, 82, {
     stroke: COLORS.lightBorder,
@@ -866,15 +900,13 @@ const buildInvalidationPdf = async (invoice) => {
     color: COLORS.slate
   });
 
-  const qrPayload = {
-    tipo: 'ANULACION',
-    controlNumber: invoice.controlNumber,
-    generationCode: invoice.generationCode,
-    invalidationGenerationCode: invoice.invalidationGenerationCode,
-    invalidationReceptionSeal: invoice.invalidationReceptionSeal
-  };
+  const qrUrl = buildPublicQueryUrl({
+    invoice,
+    generationCode: invoice.invalidationGenerationCode || invoice.generationCode,
+    issuedAt: invoice.invalidatedAt || invoice.issuedAt
+  });
 
-  const qrBuffer = await buildQrBuffer(qrPayload);
+  const qrBuffer = await buildQrBuffer(qrUrl);
 
   drawBox(doc, 430, 78, 112, 112);
   doc.image(qrBuffer, 442, 90, {

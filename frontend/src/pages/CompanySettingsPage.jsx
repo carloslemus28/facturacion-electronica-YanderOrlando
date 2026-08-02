@@ -27,6 +27,7 @@ const initialForm = {
   legalName: '',
   commercialName: '',
   logoDataUrl: '',
+  useLogoInPdf: true,
 
   economicActivityCode: '',
   economicActivityName: '',
@@ -112,6 +113,7 @@ function CompanySettingsPage() {
           legalName: company.legalName || '',
           commercialName: company.commercialName || '',
           logoDataUrl: company.logoDataUrl || '',
+          useLogoInPdf: company.useLogoInPdf ?? true,
 
           economicActivityCode: company.economicActivityCode || '',
           economicActivityName: company.economicActivityName || '',
@@ -363,6 +365,7 @@ function CompanySettingsPage() {
       legalName: form.legalName.trim(),
       commercialName: form.commercialName.trim(),
       logoDataUrl: form.logoDataUrl || null,
+      useLogoInPdf: Boolean(form.useLogoInPdf),
 
       economicActivityCode: form.economicActivityCode.trim(),
       economicActivityName: form.economicActivityName.trim(),
@@ -503,8 +506,22 @@ function CompanySettingsPage() {
               </button>
             )}
 
+            <label className="mt-4 flex items-start gap-3 rounded-xl border bg-gray-50 p-3 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                name="useLogoInPdf"
+                checked={Boolean(form.useLogoInPdf)}
+                onChange={handleChange}
+                className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-900 focus:ring-blue-800"
+              />
+              <span>
+                <span className="font-semibold text-gray-900 block">Usar logo en PDF</span>
+                Si desactiva esta opción, la representación gráfica se generará sin logo aunque haya uno cargado.
+              </span>
+            </label>
+
             <p className="text-xs text-gray-500 mt-3">
-              Use PNG, JPG o WEBP menor a {Number(import.meta.env.VITE_LOGO_MAX_SIZE_MB || 2)} MB. Este logo aparecerá en los documentos PDF.
+              Use PNG, JPG o WEBP menor a {Number(import.meta.env.VITE_LOGO_MAX_SIZE_MB || 2)} MB. El logo solo aparecerá en PDF si la opción anterior está activa.
             </p>
           </div>
 

@@ -73,6 +73,7 @@ const initialForm = {
   tertiaryEconomicActivityCode: '',
   tertiaryEconomicActivityName: '',
   email: '',
+  secondaryEmail: '',
   phoneCountryCode: 'SV',
   phoneDialCode: '503',
   phoneNationalNumber: '',
@@ -363,6 +364,10 @@ const handlePhoneCountryChange = (country) => {
       return 'Ingrese un correo electrónico válido';
     }
 
+    if (form.secondaryEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.secondaryEmail.trim())) {
+      return 'Ingrese un correo electrónico secundario válido';
+    }
+
     if (!form.phoneCountryCode) {
       return 'Seleccione el país del teléfono';
     }
@@ -431,6 +436,7 @@ const handlePhoneCountryChange = (country) => {
       tertiaryEconomicActivityCode: form.tertiaryEconomicActivityCode,
       tertiaryEconomicActivityName: form.tertiaryEconomicActivityName,
       email: form.email.trim(),
+      secondaryEmail: form.secondaryEmail.trim() || null,
       phoneCountryCode: form.phoneCountryCode,
       phoneDialCode: form.phoneDialCode,
       phoneNationalNumber: phoneNumber?.nationalNumber || form.phoneNationalNumber.trim(),
@@ -512,6 +518,7 @@ const handlePhoneCountryChange = (country) => {
       tertiaryEconomicActivityCode: customer.tertiaryEconomicActivityCode || '',
       tertiaryEconomicActivityName: customer.tertiaryEconomicActivityName || '',
       email: customer.email || '',
+      secondaryEmail: customer.secondaryEmail || '',
       phoneCountryCode: customer.phoneCountryCode || 'SV',
       phoneDialCode: customer.phoneDialCode || '503',
       phoneNationalNumber: customer.phoneNationalNumber || customer.phone || '',
@@ -651,18 +658,32 @@ const handlePhoneCountryChange = (country) => {
               </div>
 
               <div>
-                <SearchableSelect
-                  label="Extensión"
-                  value={form.phoneCountryCode}
-                  options={phoneCountryOptions}
-                  onChange={handlePhoneCountryChange}
-                  placeholder="Seleccione país"
-                  searchPlaceholder="Buscar país o extensión"
-                  getOptionValue={(option) => option.countryCode}
-                  getOptionLabel={(option) => option.label}
-                  getOptionDescription={(option) => option.description}
+                <label className="block text-sm text-gray-700 mb-1">
+                  Correo electrónico secundario
+                </label>
+                <input
+                  name="secondaryEmail"
+                  type="email"
+                  value={form.secondaryEmail}
+                  onChange={handleChange}
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800"
+                  placeholder="opcional@correo.com"
                 />
               </div>
+            </div>
+
+            <div>
+              <SearchableSelect
+                label="Extensión telefónica"
+                value={form.phoneCountryCode}
+                options={phoneCountryOptions}
+                onChange={handlePhoneCountryChange}
+                placeholder="Seleccione país"
+                searchPlaceholder="Buscar país o extensión"
+                getOptionValue={(option) => option.countryCode}
+                getOptionLabel={(option) => option.label}
+                getOptionDescription={(option) => option.description}
+              />
             </div>
 
             <div>
@@ -945,7 +966,7 @@ const handlePhoneCountryChange = (country) => {
                 value={q}
                 onChange={(event) => setQ(event.target.value)}
                 className="w-full border border-gray-300 rounded-xl pl-10 pr-4 py-3 outline-none focus:ring-2 focus:ring-blue-800"
-                placeholder="Buscar por nombre, documento, NRC, correo, teléfono o actividad"
+                placeholder="Buscar por nombre, documento, NRC, correos, teléfono o actividad"
               />
             </div>
 
@@ -1016,6 +1037,12 @@ const handlePhoneCountryChange = (country) => {
                       {customer.email && (
                         <p className="text-sm text-gray-500">
                           Correo: {customer.email}
+                        </p>
+                      )}
+
+                      {customer.secondaryEmail && (
+                        <p className="text-sm text-gray-500">
+                          Correo secundario: {customer.secondaryEmail}
                         </p>
                       )}
 

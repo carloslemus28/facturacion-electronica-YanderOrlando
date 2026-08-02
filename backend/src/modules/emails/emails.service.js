@@ -284,23 +284,34 @@ const validateInvoiceStatusForEmail = (invoice) => {
   }
 };
 
-const validateRecipient = (to) => {
-  if (!to || !String(to).trim()) {
+const normalizeRecipients = (to) => {
+  const source = Array.isArray(to)
+    ? to
+    : String(to || '')
+      .split(/[;,]/g);
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const recipients = [...new Set(
+    source
+      .map((email) => String(email || '').trim())
+      .filter(Boolean)
+  )];
+
+  if (recipients.length === 0) {
     const error = new Error('Debe indicar el correo destinatario');
     error.statusCode = 400;
     throw error;
   }
 
-  const normalizedTo = String(to).trim();
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const invalidEmail = recipients.find((email) => !emailRegex.test(email));
 
-  if (!emailRegex.test(normalizedTo)) {
-    const error = new Error('El correo destinatario no tiene un formato válido');
+  if (invalidEmail) {
+    const error = new Error(`El correo destinatario no tiene un formato válido: ${invalidEmail}`);
     error.statusCode = 400;
     throw error;
   }
 
-  return normalizedTo;
+  return recipients;
 };
 
 const createEmailLog = async ({
@@ -339,7 +350,11 @@ const sendInvoiceEmail = async ({ id, user, to, subject, message }) => {
 
   validateInvoiceStatusForEmail(invoice);
 
-  const recipient = validateRecipient(to || invoice.customer?.email);
+  const recipients = normalizeRecipients(to || [
+    invoice.customer?.email,
+    invoice.customer?.secondaryEmail
+  ]);
+  const recipient = recipients.join(', ');
 
   const finalSubject = subject && String(subject).trim()
     ? String(subject).trim()
@@ -360,7 +375,7 @@ const sendInvoiceEmail = async ({ id, user, to, subject, message }) => {
 
     const mailOptions = {
       from: `"${smtpConfig.fromName}" <${smtpConfig.fromEmail}>`,
-      to: recipient,
+      to: recipients,
       subject: finalSubject,
       text: buildPlainText({
         invoice,

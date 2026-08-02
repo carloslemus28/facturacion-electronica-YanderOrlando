@@ -22,6 +22,9 @@ const DEFAULT_ALLOWED_DOCUMENT_TYPES = ['01', '03'];
 
 const IVA_RATE = 0.13;
 const IVA_FACTOR = 1.13;
+const IVA_RETENTION_RATE = 0.01;
+const IVA_RETENTION_THRESHOLD = 100;
+const IVA_RETENTION_DOCUMENT_TYPES = new Set(['01', '03', '05']);
 
 const DOCUMENT_TYPE_NAMES = {
   '01': 'Factura de Consumidor Final',
@@ -323,6 +326,104 @@ const calculateItemTotals = ({
     cotrans: extraCotrans,
     total
   };
+};
+
+
+const supportsAutomaticIvaRetention = (documentTypeCode) => {
+  return IVA_RETENTION_DOCUMENT_TYPES.has(String(documentTypeCode || ''));
+};
+
+const calculateRetentionBase = ({ documentTypeCode, items }) => {
+  return round4(
+    items.reduce((sum, item) => {
+      const totals = calculateItemTotals({
+        documentTypeCode,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        saleType: item.saleType || 'GRAVADA',
+        retention1: 0,
+        fovial: item.fovial || 0,
+        cotrans: item.cotrans || 0
+      });
+
+      return sum + Number(totals.gravada || 0);
+    }, 0)
+  );
+};
+
+const applyAutomaticRetentionToInvoiceItems = ({
+  documentTypeCode,
+  items,
+  applyRetention1 = false
+}) => {
+  const sourceItems = Array.isArray(items) ? items : [];
+
+  if (!applyRetention1) {
+    return sourceItems.map((item) => ({
+      ...item,
+      retention1: 0
+    }));
+  }
+
+  if (!supportsAutomaticIvaRetention(documentTypeCode)) {
+    const error = new Error('La retención 1% solo está disponible para Factura, CCF y Nota de Crédito');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const retentionBase = calculateRetentionBase({
+    documentTypeCode,
+    items: sourceItems
+  });
+
+  if (retentionBase <= IVA_RETENTION_THRESHOLD) {
+    const error = new Error('La retención 1% solo puede aplicarse cuando la venta gravada supera $100.00');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const totalRetention = round4(retentionBase * IVA_RETENTION_RATE);
+  let assignedRetention = 0;
+  const taxableIndexes = [];
+  const preliminaryItems = sourceItems.map((item, index) => {
+    const totals = calculateItemTotals({
+      documentTypeCode,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      saleType: item.saleType || 'GRAVADA',
+      retention1: 0,
+      fovial: item.fovial || 0,
+      cotrans: item.cotrans || 0
+    });
+
+    if (totals.gravada > 0) {
+      taxableIndexes.push(index);
+    }
+
+    return {
+      item,
+      totals
+    };
+  });
+
+  return preliminaryItems.map(({ item, totals }, index) => {
+    let retention = 0;
+
+    if (totals.gravada > 0) {
+      const isLastTaxableItem = taxableIndexes[taxableIndexes.length - 1] === index;
+
+      retention = isLastTaxableItem
+        ? round4(totalRetention - assignedRetention)
+        : round4((Number(totals.gravada || 0) / retentionBase) * totalRetention);
+
+      assignedRetention = round4(assignedRetention + retention);
+    }
+
+    return {
+      ...item,
+      retention1: retention
+    };
+  });
 };
 
 const validateInvoiceData = (data) => {
@@ -702,6 +803,64 @@ const buildInvoiceVisibilityInclude = (user) => {
   return pointOfSaleInclude;
 };
 
+
+const INVOICE_LIST_ATTRIBUTES = [
+  'id',
+  'companyId',
+  'pointOfSaleId',
+  'userId',
+  'customerId',
+  'documentTypeCode',
+  'documentTypeName',
+  'controlNumber',
+  'generationCode',
+  'validationStatus',
+  'receptionSeal',
+  'relatedInvoiceId',
+  'relatedControlNumber',
+  'relatedGenerationCode',
+  'relatedDocumentTypeCode',
+  'transmittedAt',
+  'acceptedAt',
+  'rejectedAt',
+  'rejectionReason',
+  'invalidatedAt',
+  'invalidationReason',
+  'invalidationReceptionSeal',
+  'invalidationGenerationCode',
+  'invalidationDeadlineAt',
+  'status',
+  'issuedAt',
+  'operationCondition',
+  'paymentMethod',
+  'noSuj',
+  'exenta',
+  'gravada',
+  'subtotal',
+  'iva',
+  'retention1',
+  'fovial',
+  'cotrans',
+  'total',
+  'notes',
+  'createdAt',
+  'updatedAt'
+];
+
+const CUSTOMER_LIST_ATTRIBUTES = [
+  'id',
+  'name',
+  'commercialName',
+  'documentType',
+  'documentNumber',
+  'nrc',
+  'email',
+  'secondaryEmail',
+  'phone',
+  'economicActivityCode',
+  'economicActivityName'
+];
+
 const validateInvoiceVisibility = async ({ invoice, user }) => {
   if (!invoice) {
     const error = new Error('DTE no encontrado');
@@ -821,6 +980,12 @@ const createGeneratedInvoice = async ({ data, user }) => {
       customer
     });
 
+    const normalizedItems = applyAutomaticRetentionToInvoiceItems({
+      documentTypeCode: data.documentTypeCode,
+      items: data.items,
+      applyRetention1: data.applyRetention1
+    });
+
     const controlResult = await controlNumbersService.generateNextControlNumber({
       companyId: currentUser.company.id,
       pointOfSaleId: currentUser.pointOfSale.id,
@@ -868,7 +1033,7 @@ const createGeneratedInvoice = async ({ data, user }) => {
       notes: data.notes || null
     }, { transaction });
 
-    for (const item of data.items) {
+    for (const item of normalizedItems) {
       let product = null;
 
       if (item.productId) {
@@ -1092,6 +1257,12 @@ const updateGeneratedInvoice = async ({ id, data, user }) => {
       customer
     });
 
+    const normalizedItems = applyAutomaticRetentionToInvoiceItems({
+      documentTypeCode: data.documentTypeCode,
+      items: data.items,
+      applyRetention1: data.applyRetention1
+    });
+
     const previousItems = await InvoiceItem.findAll({
       where: {
         invoiceId: invoice.id
@@ -1136,7 +1307,7 @@ const updateGeneratedInvoice = async ({ id, data, user }) => {
     let cotrans = 0;
     let total = 0;
 
-    for (const item of data.items) {
+    for (const item of normalizedItems) {
       let product = null;
 
       if (item.productId) {
@@ -1299,6 +1470,18 @@ const attachReturnEventsToInvoices = async (invoices) => {
   if (invoiceIds.length === 0) return invoices;
 
   const returnEvents = await DteEvent.findAll({
+  attributes: [
+    'id',
+    'sourceInvoiceId',
+    'generationCode',
+    'status',
+    'receptionSeal',
+    'issuedAt',
+    'transmittedAt',
+    'acceptedAt',
+    'rejectedAt',
+    'rejectionReason'
+  ],
   where: {
     sourceInvoiceId: {
       [Op.in]: invoiceIds
@@ -1350,6 +1533,7 @@ const listInvoices = async ({ user, startDate, endDate }) => {
   }
 
   const invoices = await Invoice.findAll({
+    attributes: INVOICE_LIST_ATTRIBUTES,
     where: {
       companyId: currentUser.company.id,
       issuedAt: getIssuedAtRangeForList({
@@ -1360,7 +1544,8 @@ const listInvoices = async ({ user, startDate, endDate }) => {
     include: [
       {
         model: Customer,
-        as: 'customer'
+        as: 'customer',
+        attributes: CUSTOMER_LIST_ATTRIBUTES
       },
       buildInvoiceVisibilityInclude(currentUser),
       {
@@ -1441,6 +1626,7 @@ const getDashboardSummary = async ({ user }) => {
   }
 
   const invoices = await Invoice.findAll({
+    attributes: INVOICE_LIST_ATTRIBUTES,
     where: {
       companyId: currentUser.company.id,
       issuedAt: getCurrentMonthIssuedAtRange()
@@ -1448,7 +1634,8 @@ const getDashboardSummary = async ({ user }) => {
     include: [
       {
         model: Customer,
-        as: 'customer'
+        as: 'customer',
+        attributes: CUSTOMER_LIST_ATTRIBUTES
       },
       buildInvoiceVisibilityInclude(currentUser)
     ],
@@ -1514,6 +1701,7 @@ const listAvailableDocumentsForCreditNote = async ({ user }) => {
   }
 
   const invoices = await Invoice.findAll({
+    attributes: INVOICE_LIST_ATTRIBUTES,
     where: {
       companyId: currentUser.company.id,
       documentTypeCode: '03',
@@ -1522,7 +1710,8 @@ const listAvailableDocumentsForCreditNote = async ({ user }) => {
     include: [
       {
         model: Customer,
-        as: 'customer'
+        as: 'customer',
+        attributes: CUSTOMER_LIST_ATTRIBUTES
       },
       buildInvoiceVisibilityInclude(currentUser),
       {

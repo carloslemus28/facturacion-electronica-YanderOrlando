@@ -194,6 +194,11 @@ const buildCompanyData = (data, currentCompany = null) => {
       ? validateLogoDataUrl(data.logoDataUrl)
       : currentCompany?.logoDataUrl || null,
 
+    useLogoInPdf: normalizeBoolean(
+      data.useLogoInPdf,
+      currentCompany?.useLogoInPdf ?? true
+    ),
+
     economicActivityCode: normalizeText(data.economicActivityCode ?? currentCompany?.economicActivityCode),
     economicActivityName: normalizeText(data.economicActivityName ?? currentCompany?.economicActivityName),
 

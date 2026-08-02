@@ -4,6 +4,7 @@ const app = require('./app');
 const { sequelize, testConnection } = require('./config/database');
 const loadModels = require('./config/models');
 const seedSecurityData = require('./config/seed');
+const ensureRuntimeSchema = require('./config/runtime-schema');
 
 const PORT = process.env.PORT || process.env.BACKEND_PORT || 4000;
 
@@ -13,6 +14,7 @@ const startServer = async () => {
   loadModels();
 
   await sequelize.sync();
+  await ensureRuntimeSchema();
 
   await seedSecurityData();
 

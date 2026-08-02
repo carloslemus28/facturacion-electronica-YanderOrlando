@@ -111,6 +111,15 @@ const Customer = sequelize.define('Customer', {
     }
   },
 
+  secondaryEmail: {
+    type: DataTypes.STRING(160),
+    allowNull: true,
+    field: 'secondary_email',
+    validate: {
+      isEmail: true
+    }
+  },
+
   phone: {
     type: DataTypes.STRING(30),
     allowNull: true
@@ -196,6 +205,9 @@ const Customer = sequelize.define('Customer', {
     },
     {
       fields: ['email']
+    },
+    {
+      fields: ['secondary_email']
     }
   ]
 });

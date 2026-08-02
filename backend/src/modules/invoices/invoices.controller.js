@@ -1,6 +1,15 @@
 const emailsService = require('../emails/emails.service');
 const invoicesService = require('./invoices.service');
 
+const getAutomaticEmailRecipients = (invoice) => {
+  return [...new Set([
+    invoice.customer?.email,
+    invoice.customer?.secondaryEmail
+  ]
+    .map((email) => String(email || '').trim())
+    .filter(Boolean))];
+};
+
 const createGeneratedInvoice = async (req, res, next) => {
   try {
     const invoice = await invoicesService.createGeneratedInvoice({
@@ -117,9 +126,9 @@ const transmitReal = async (req, res, next) => {
       message: null
     };
 
-    const recipient = String(invoice.customer?.email || '').trim();
+    const recipients = getAutomaticEmailRecipients(invoice);
 
-    if (!recipient) {
+    if (recipients.length === 0) {
       automaticEmail = {
         sent: false,
         skipped: true,
@@ -130,7 +139,7 @@ const transmitReal = async (req, res, next) => {
         const email = await emailsService.sendInvoiceEmail({
           id: invoice.id,
           user: req.user,
-          to: recipient
+          to: recipients
         });
 
         automaticEmail = {
@@ -150,7 +159,7 @@ const transmitReal = async (req, res, next) => {
         automaticEmail = {
           sent: false,
           skipped: false,
-          recipient,
+          recipient: recipients.join(', '),
           message: emailError.message
         };
       }
@@ -181,9 +190,9 @@ const invalidateReal = async (req, res, next) => {
       message: null
     };
 
-    const recipient = String(invoice.customer?.email || '').trim();
+    const recipients = getAutomaticEmailRecipients(invoice);
 
-    if (!recipient) {
+    if (recipients.length === 0) {
       automaticEmail = {
         sent: false,
         skipped: true,
@@ -194,7 +203,7 @@ const invalidateReal = async (req, res, next) => {
         const email = await emailsService.sendInvoiceEmail({
           id: invoice.id,
           user: req.user,
-          to: recipient
+          to: recipients
         });
 
         automaticEmail = {
@@ -214,7 +223,7 @@ const invalidateReal = async (req, res, next) => {
         automaticEmail = {
           sent: false,
           skipped: false,
-          recipient,
+          recipient: recipients.join(', '),
           message: emailError.message
         };
       }

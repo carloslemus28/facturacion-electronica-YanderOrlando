@@ -704,7 +704,7 @@ const formatExcludedSubjectDocumentNumber = (
   return formatReceiverDocumentNumber(documentType, rawValue);
 };
 
-const buildConsumerFinalReceiver = (customer) => {
+const buildConsumerFinalReceiver = (customer, company = {}) => {
   if (!customer?.id) {
     return null;
   }
@@ -724,12 +724,12 @@ const buildConsumerFinalReceiver = (customer) => {
       municipio: cleanCatalogCode(customer.municipalityCode, 2),
       complemento: cleanAddressComplement(customer.addressComplement)
     },
-    telefono: cleanPhone(customer.phone),
-    correo: cleanString(customer.email)
+    telefono: getContactPhone(customer.phone, customer.phoneNationalNumber, company.phone),
+    correo: getContactEmail(customer.email, customer.secondaryEmail, company.email, process.env.SMTP_FROM_EMAIL)
   };
 };
 
-const buildTaxpayerReceiver = (customer) => {
+const buildTaxpayerReceiver = (customer, company = {}) => {
   if (!customer?.id) {
     return null;
   }
@@ -746,8 +746,8 @@ const buildTaxpayerReceiver = (customer) => {
       municipio: cleanCatalogCode(customer.municipalityCode, 2),
       complemento: cleanAddressComplement(customer.addressComplement)
     },
-    telefono: cleanPhone(customer.phone),
-    correo: cleanString(customer.email)
+    telefono: getContactPhone(customer.phone, customer.phoneNationalNumber, company.phone),
+    correo: getContactEmail(customer.email, customer.secondaryEmail, company.email, process.env.SMTP_FROM_EMAIL)
   };
 };
 
@@ -772,12 +772,12 @@ const buildExportReceiver = (invoice) => {
     nombreComercial: cleanString(customer.commercialName || customer.name),
     tipoPersona: getExportPersonType(customer),
     descActividad: cleanString(customer.economicActivityName || 'Actividad económica del receptor'),
-    telefono: cleanPhone(customer.phone) || cleanPhone(company.phone) || '00000000',
-    correo: cleanString(customer.email || company.email || 'facturacion@correo.com')
+    telefono: getContactPhone(customer.phone, customer.phoneNationalNumber, company.phone) || '00000000',
+    correo: getContactEmail(customer.email, customer.secondaryEmail, company.email, process.env.SMTP_FROM_EMAIL) || 'facturacion@correo.com'
   };
 };
 
-const buildExcludedSubject = (customer) => {
+const buildExcludedSubject = (customer, company = {}) => {
   if (!customer?.id) {
     return null;
   }
@@ -796,24 +796,29 @@ const buildExcludedSubject = (customer) => {
       municipio: cleanCatalogCode(customer.municipalityCode, 2),
       complemento: cleanAddressComplement(customer.addressComplement)
     },
-    telefono: cleanPhone(customer.phone),
-    correo: cleanString(customer.email)
+    telefono: getContactPhone(customer.phone, customer.phoneNationalNumber, company.phone),
+    correo: getContactEmail(customer.email, customer.secondaryEmail, company.email, process.env.SMTP_FROM_EMAIL)
   };
 };
 
 const buildReceiver = (invoice) => {
   const documentTypeCode = String(invoice.documentTypeCode || '');
   const customer = invoice.customer || {};
+  const company = invoice.company || {};
 
   if (isTaxpayerReceiverDocument(documentTypeCode)) {
-    return buildTaxpayerReceiver(customer);
+    return buildTaxpayerReceiver(customer, company);
   }
 
   if (isExportInvoice(documentTypeCode)) {
     return buildExportReceiver(invoice);
   }
 
-  return buildConsumerFinalReceiver(customer);
+  if (isExcludedSubjectInvoice(documentTypeCode)) {
+    return buildExcludedSubject(customer, company);
+  }
+
+  return buildConsumerFinalReceiver(customer, company);
 };
 
 const getRelatedDocumentNumberForItem = (invoice) => {
@@ -1006,7 +1011,8 @@ const buildConsumerFinalSummary = (invoice) => {
   const subTotal = round2(invoice.subtotal);
   const totalIva = getOfficialTotalIva(invoice);
   const retencion = round2(invoice.retention1);
-  const totalPagar = round2(invoice.total);
+  const montoTotalOperacion = round2(subTotal - retencion);
+  const totalPagar = round2(invoice.total || montoTotalOperacion);
 
   return {
     totalNoSuj,
@@ -1022,7 +1028,7 @@ const buildConsumerFinalSummary = (invoice) => {
     subTotal,
     ivaRete1: retencion,
     reteRenta: 0,
-    montoTotalOperacion: subTotal,
+    montoTotalOperacion,
     totalNoGravado: 0,
     totalPagar,
     totalLetras: amountToSpanishWords(totalPagar),
@@ -1046,8 +1052,8 @@ const buildTaxpayerSummary = (invoice) => {
   const ivaPerci1 = 0;
   const ivaRete1 = round2(invoice.retention1);
   const reteRenta = 0;
-  const montoTotalOperacion = round2(subTotal + totalIva + ivaPerci1);
-  const totalPagar = round2(invoice.total || (montoTotalOperacion - ivaRete1 - reteRenta));
+  const montoTotalOperacion = round2(subTotal + totalIva + ivaPerci1 - ivaRete1 - reteRenta);
+  const totalPagar = round2(invoice.total || montoTotalOperacion);
 
   return {
     totalNoSuj,
@@ -1087,7 +1093,7 @@ const buildCreditNoteSummary = (invoice) => {
   const ivaPerci1 = 0;
   const ivaRete1 = round2(invoice.retention1);
   const reteRenta = 0;
-  const montoTotalOperacion = round2(subTotal + totalIva + ivaPerci1);
+  const montoTotalOperacion = round2(subTotal + totalIva + ivaPerci1 - ivaRete1 - reteRenta);
 
   return {
     totalNoSuj,
@@ -1282,7 +1288,7 @@ const buildStandardDteJson = (invoice) => {
     return {
       identificacion: buildIdentification(invoice),
       emisor: buildIssuer(invoice),
-      sujetoExcluido: buildExcludedSubject(invoice.customer || {}),
+      sujetoExcluido: buildExcludedSubject(invoice.customer || {}, invoice.company || {}),
       cuerpoDocumento: buildBody(invoice),
       resumen: buildSummary(invoice),
       apendice: buildAppendix(invoice)
@@ -1391,6 +1397,7 @@ const buildInvalidationJson = (invoice) => {
 
   const documentEmail = getContactEmail(
     customer.email,
+    customer.secondaryEmail,
     company.email,
     process.env.SMTP_FROM_EMAIL
   );

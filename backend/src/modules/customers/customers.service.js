@@ -291,6 +291,12 @@ const validateCustomerData = (data) => {
     throw error;
   }
 
+  if (data.secondaryEmail && !validateEmail(String(data.secondaryEmail).trim())) {
+    const error = new Error('Ingrese un correo electrónico secundario válido');
+    error.statusCode = 400;
+    throw error;
+  }
+
   if (!data.phoneNationalNumber || !data.phoneNationalNumber.trim()) {
     const error = new Error('El teléfono del cliente es obligatorio');
     error.statusCode = 400;
@@ -362,6 +368,7 @@ const listCustomers = async ({ query = {}, user }) => {
       { documentNumber: { [Op.like]: `%${q}%` } },
       { nrc: { [Op.like]: `%${q}%` } },
       { email: { [Op.like]: `%${q}%` } },
+      { secondaryEmail: { [Op.like]: `%${q}%` } },
       { phone: { [Op.like]: `%${q}%` } },
       { phoneNationalNumber: { [Op.like]: `%${q}%` } },
       { economicActivityName: { [Op.like]: `%${q}%` } },
@@ -479,6 +486,7 @@ const createCustomer = async ({ data, user }) => {
     nrc,
     name: normalizeText(data.name),
     email: normalizeText(data.email),
+    secondaryEmail: normalizeText(data.secondaryEmail),
     phone: phoneData.phone,
     phoneCountryCode: phoneData.phoneCountryCode,
     phoneDialCode: phoneData.phoneDialCode,
@@ -522,6 +530,7 @@ const createCustomer = async ({ data, user }) => {
     tertiaryEconomicActivityCode: normalizedData.tertiaryEconomicActivityCode,
     tertiaryEconomicActivityName: normalizedData.tertiaryEconomicActivityName,
     email: normalizedData.email,
+    secondaryEmail: normalizedData.secondaryEmail,
     phone: normalizedData.phone,
     phoneCountryCode: normalizedData.phoneCountryCode,
     phoneDialCode: normalizedData.phoneDialCode,
@@ -585,6 +594,7 @@ const updateCustomer = async (id, { data, user }) => {
     tertiaryEconomicActivityCode: normalizeEmpty(data.tertiaryEconomicActivityCode ?? customer.tertiaryEconomicActivityCode),
     tertiaryEconomicActivityName: normalizeText(data.tertiaryEconomicActivityName ?? customer.tertiaryEconomicActivityName),
     email: normalizeText(data.email ?? customer.email),
+    secondaryEmail: normalizeText(data.secondaryEmail ?? customer.secondaryEmail),
     phone: phoneData.phone,
     phoneCountryCode: phoneData.phoneCountryCode,
     phoneDialCode: phoneData.phoneDialCode,

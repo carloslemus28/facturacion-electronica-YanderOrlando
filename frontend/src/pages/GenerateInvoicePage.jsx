@@ -8,6 +8,7 @@ import {
   Plus,
   RefreshCcw,
   Save,
+  Send,
   Trash2
 } from 'lucide-react';
 
@@ -16,7 +17,8 @@ import { getProductsRequest } from '../api/products.api';
 import {
   generateInvoiceRequest,
   getAvailableDocumentsForCreditNoteRequest,
-  getInvoiceByIdRequest
+  getInvoiceByIdRequest,
+  transmitInvoiceRequest
 } from '../api/invoices.api';
 import { refreshRequest } from '../api/auth.api';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -63,12 +65,16 @@ const initialItemForm = {
   quantity: 1,
   unitPrice: '',
   saleType: 'GRAVADA',
-  retention1: '',
   fovial: '',
   cotrans: ''
 };
 
 const DEFAULT_ALLOWED_DOCUMENT_TYPES = ['01', '03'];
+const IVA_RETENTION_RATE = 0.01;
+const IVA_RETENTION_THRESHOLD = 100;
+const IVA_RETENTION_DOCUMENT_TYPES = ['01', '03', '05'];
+
+const round4Number = (value) => Number(Number(value || 0).toFixed(4));
 
 const getTodayInputDate = () => {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -218,12 +224,15 @@ function GenerateInvoicePage() {
 
   const [itemForm, setItemForm] = useState(initialItemForm);
   const [items, setItems] = useState([]);
+  const [applyRetention1, setApplyRetention1] = useState(false);
 
   const [creditNoteDocuments, setCreditNoteDocuments] = useState([]);
   const [relatedInvoiceDetail, setRelatedInvoiceDetail] = useState(null);
 
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [generatedInvoice, setGeneratedInvoice] = useState(null);
+  const [transmittingGeneratedInvoice, setTransmittingGeneratedInvoice] = useState(false);
   const [loadingCreditNoteDocuments, setLoadingCreditNoteDocuments] = useState(false);
   const [loadingRelatedInvoiceDetail, setLoadingRelatedInvoiceDetail] = useState(false);
 
@@ -238,6 +247,7 @@ function GenerateInvoicePage() {
   const originalEditProductQuantitiesRef = useRef({});
 
   const usesFuelTaxes = Boolean(userContext?.company?.usesFuelTaxes);
+  const canUseIvaRetention = IVA_RETENTION_DOCUMENT_TYPES.includes(String(documentTypeCode));
 
   const allowedDocumentTypes = parseAllowedDocumentTypes(
     userContext?.company?.allowedDocumentTypes
@@ -340,8 +350,8 @@ function GenerateInvoicePage() {
         return;
       }
 
-      if (invoice.status !== 'GENERADO') {
-        toast.error('Solo se pueden editar DTE en estado GENERADO');
+      if (!['GENERADO', 'RECHAZADO'].includes(invoice.status)) {
+        toast.error('Solo se pueden editar DTE en estado GENERADO o RECHAZADO');
         navigate('/invoices');
         return;
       }
@@ -398,6 +408,8 @@ function GenerateInvoicePage() {
       setPaymentMethod(invoice.paymentMethod || 'EFECTIVO');
       setNotes(invoice.notes || '');
       setItems(mappedItems);
+      setApplyRetention1(Number(invoice.retention1 || 0) > 0);
+      setGeneratedInvoice(invoice);
       setItemForm(initialItemForm);
 
       if (invoice.documentTypeCode === '05') {
@@ -440,7 +452,7 @@ function GenerateInvoicePage() {
 
   useEffect(() => {
     if (!userContext?.company?.allowedDocumentTypes) return;
-    
+
     if (isEditMode && !editLoadedRef.current) return;
 
     const allowed = parseAllowedDocumentTypes(userContext.company.allowedDocumentTypes);
@@ -480,6 +492,8 @@ function GenerateInvoicePage() {
 
   setCustomerId('');
   setItems([]);
+  setApplyRetention1(false);
+  setGeneratedInvoice(null);
   setItemForm(initialItemForm);
 
   if (documentTypeCode === '05') {
@@ -605,6 +619,117 @@ function GenerateInvoicePage() {
     };
   };
 
+  const calculateRetentionBase = (sourceItems) => {
+    return round4Number(
+      sourceItems.reduce((sum, item) => {
+        const totals = calculateItemTotals({
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          saleType: item.saleType,
+          retention1: 0,
+          fovial: usesFuelTaxes ? item.fovial : 0,
+          cotrans: usesFuelTaxes ? item.cotrans : 0
+        });
+
+        return sum + Number(totals.gravada || 0);
+      }, 0)
+    );
+  };
+
+  const automaticRetentionBase = useMemo(() => {
+    return calculateRetentionBase(items);
+  }, [items, documentTypeCode, usesFuelTaxes]);
+
+  const itemsWithAutomaticRetention = useMemo(() => {
+    if (!applyRetention1 || !canUseIvaRetention || automaticRetentionBase <= IVA_RETENTION_THRESHOLD) {
+      return items.map((item) => ({
+        ...item,
+        ...calculateItemTotals({
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          saleType: item.saleType,
+          retention1: 0,
+          fovial: usesFuelTaxes ? item.fovial : 0,
+          cotrans: usesFuelTaxes ? item.cotrans : 0
+        }),
+        retention1: 0
+      }));
+    }
+
+    const totalRetention = round4Number(automaticRetentionBase * IVA_RETENTION_RATE);
+    let assignedRetention = 0;
+    const taxableIndexes = [];
+
+    const preliminaryItems = items.map((item, index) => {
+      const totals = calculateItemTotals({
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        saleType: item.saleType,
+        retention1: 0,
+        fovial: usesFuelTaxes ? item.fovial : 0,
+        cotrans: usesFuelTaxes ? item.cotrans : 0
+      });
+
+      if (totals.gravada > 0) {
+        taxableIndexes.push(index);
+      }
+
+      return {
+        item,
+        totals
+      };
+    });
+
+    return preliminaryItems.map(({ item, totals }, index) => {
+      let retention = 0;
+
+      if (totals.gravada > 0) {
+        const isLastTaxableItem = taxableIndexes[taxableIndexes.length - 1] === index;
+
+        retention = isLastTaxableItem
+          ? round4Number(totalRetention - assignedRetention)
+          : round4Number((Number(totals.gravada || 0) / automaticRetentionBase) * totalRetention);
+
+        assignedRetention = round4Number(assignedRetention + retention);
+      }
+
+      const totalsWithRetention = calculateItemTotals({
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        saleType: item.saleType,
+        retention1: retention,
+        fovial: usesFuelTaxes ? item.fovial : 0,
+        cotrans: usesFuelTaxes ? item.cotrans : 0
+      });
+
+      return {
+        ...item,
+        ...totalsWithRetention,
+        retention1: retention
+      };
+    });
+  }, [items, applyRetention1, canUseIvaRetention, automaticRetentionBase, documentTypeCode, usesFuelTaxes]);
+
+  const handleApplyRetention = () => {
+    if (!canUseIvaRetention) {
+      toast.error('La retención 1% solo está disponible para Factura, CCF y Nota de Crédito');
+      return;
+    }
+
+    if (automaticRetentionBase <= IVA_RETENTION_THRESHOLD) {
+      toast.error('La venta gravada debe superar $100.00 para aplicar retención 1%');
+      return;
+    }
+
+    setApplyRetention1(true);
+    toast.success('Retención 1% aplicada automáticamente');
+  };
+
+  const handleRemoveRetention = () => {
+    setApplyRetention1(false);
+    toast.success('Retención 1% quitada');
+  };
+
   const invoiceTotals = useMemo(() => {
     let noSuj = 0;
     let exenta = 0;
@@ -616,7 +741,7 @@ function GenerateInvoicePage() {
     let cotrans = 0;
     let total = 0;
 
-    for (const item of items) {
+    for (const item of itemsWithAutomaticRetention) {
       noSuj += Number(item.noSuj || 0);
       exenta += Number(item.exenta || 0);
       gravada += Number(item.gravada || 0);
@@ -639,7 +764,7 @@ function GenerateInvoicePage() {
       cotrans,
       total
     };
-  }, [items]);
+  }, [itemsWithAutomaticRetention]);
 
   const handleProductChange = (product) => {
     if (!product) {
@@ -685,9 +810,6 @@ function GenerateInvoicePage() {
       quantity: Number(relatedItem.quantity || 1),
       unitPrice: Number(relatedItem.unitPrice || 0).toString(),
       saleType: relatedItem.saleType || 'GRAVADA',
-      retention1: Number(relatedItem.retention1 || 0) > 0
-        ? Number(relatedItem.retention1).toString()
-        : '',
       fovial: usesFuelTaxes && Number(relatedItem.fovial || 0) > 0
         ? Number(relatedItem.fovial).toString()
         : '',
@@ -730,11 +852,6 @@ function GenerateInvoicePage() {
       return;
     }
 
-    if (itemForm.retention1 !== '' && Number(itemForm.retention1) < 0) {
-      toast.error('La retención no puede ser negativa');
-      return;
-    }
-
     if (usesFuelTaxes && itemForm.fovial !== '' && Number(itemForm.fovial) < 0) {
       toast.error('FOVIAL no puede ser negativo');
       return;
@@ -774,7 +891,7 @@ function GenerateInvoicePage() {
       quantity: itemForm.quantity,
       unitPrice: itemForm.unitPrice,
       saleType: itemForm.saleType,
-      retention1: itemForm.retention1 || 0,
+      retention1: 0,
       fovial: usesFuelTaxes ? itemForm.fovial || 0 : 0,
       cotrans: usesFuelTaxes ? itemForm.cotrans || 0 : 0
     });
@@ -789,7 +906,7 @@ function GenerateInvoicePage() {
       unitOfMeasureName: selectedProduct.unitOfMeasureName,
       quantity: Number(itemForm.quantity),
       unitPrice: Number(itemForm.unitPrice),
-      retention1: Number(itemForm.retention1 || 0),
+      retention1: 0,
       fovial: usesFuelTaxes ? Number(itemForm.fovial || 0) : 0,
       cotrans: usesFuelTaxes ? Number(itemForm.cotrans || 0) : 0,
       stockBefore: availableStockForSelectedProduct,
@@ -848,6 +965,8 @@ function GenerateInvoicePage() {
     setNotes('');
     setItemForm(initialItemForm);
     setItems([]);
+    setApplyRetention1(false);
+    setGeneratedInvoice(null);
   };
 
   const generateDte = async () => {
@@ -866,7 +985,8 @@ function GenerateInvoicePage() {
       operationCondition,
       paymentMethod,
       notes: notes.trim(),
-      items: items.map((item) => ({
+      applyRetention1: Boolean(applyRetention1),
+      items: itemsWithAutomaticRetention.map((item) => ({
         productId: item.productId,
         itemType: item.itemType,
         code: item.code,
@@ -893,12 +1013,14 @@ function GenerateInvoicePage() {
         data.message || (isEditMode ? 'DTE actualizado correctamente' : 'DTE generado correctamente')
       );
 
-      if (isEditMode) {
-        navigate('/invoices');
-        return;
+      const invoice = data.invoice || null;
+
+      if (invoice?.id) {
+        setGeneratedInvoice(invoice);
+        editLoadedRef.current = false;
+        navigate(`/generate?edit=${invoice.id}`, { replace: true });
       }
 
-      resetForm();
       await loadData();
     } catch (error) {
       console.error('Error generando DTE:', error);
@@ -909,6 +1031,63 @@ function GenerateInvoicePage() {
       setGenerating(false);
     }
   };
+
+  const handleTransmitGeneratedInvoice = async () => {
+    const invoiceId = generatedInvoice?.id || editInvoiceId;
+
+    if (!invoiceId) {
+      toast.error('Primero debe generar y guardar el DTE');
+      return;
+    }
+
+    try {
+      setTransmittingGeneratedInvoice(true);
+
+      const data = await transmitInvoiceRequest(invoiceId);
+
+      toast.success(data.message || 'DTE transmitido correctamente a Hacienda');
+
+      if (data.automaticEmail?.sent) {
+        toast.success(`Correo enviado a ${data.automaticEmail.recipient}`);
+      } else if (data.automaticEmail?.message) {
+        toast.error(data.automaticEmail.message);
+      }
+
+      resetForm();
+      editLoadedRef.current = false;
+      originalEditProductQuantitiesRef.current = {};
+      navigate('/generate', { replace: true });
+      await loadData();
+    } catch (error) {
+      console.error('Error transmitiendo DTE desde Generar DTE:', error);
+
+      const message = error.response?.data?.message || 'No se pudo transmitir el DTE a Hacienda';
+      toast.error(message);
+
+      if (invoiceId) {
+        try {
+          const data = await getInvoiceByIdRequest(invoiceId);
+          setGeneratedInvoice(data.invoice || {
+            id: invoiceId,
+            validationStatus: 'ERROR',
+            rejectionReason: message
+          });
+        } catch (loadError) {
+          setGeneratedInvoice((prev) => ({
+            ...(prev || { id: invoiceId }),
+            validationStatus: 'ERROR',
+            rejectionReason: message
+          }));
+        }
+      }
+    } finally {
+      setTransmittingGeneratedInvoice(false);
+    }
+  };
+
+  const correctionRequiredMessage = generatedInvoice?.validationStatus === 'ERROR'
+    ? generatedInvoice.rejectionReason || 'Hacienda reportó una observación. Corrija el DTE y vuelva a transmitirlo.'
+    : '';
 
   if (loading) {
     return (
@@ -1218,22 +1397,6 @@ function GenerateInvoicePage() {
             </div>
 
             <div className={`grid ${usesFuelTaxes ? 'md:grid-cols-3' : 'md:grid-cols-1'} gap-3 mt-4`}>
-              <div>
-                <label className="block text-sm text-gray-700 mb-1">
-                  Retención 1%
-                </label>
-                <input
-                  name="retention1"
-                  type="number"
-                  min="0"
-                  step="0.0001"
-                  value={itemForm.retention1}
-                  onChange={handleItemChange}
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-800"
-                  placeholder="0.00"
-                />
-              </div>
-
               {usesFuelTaxes && (
                 <>
                   <div>
@@ -1289,7 +1452,7 @@ function GenerateInvoicePage() {
                 </p>
               )}
 
-              {items.map((item) => (
+              {itemsWithAutomaticRetention.map((item) => (
                 <article key={item.localId} className="border rounded-xl p-4">
                   <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
                     <div>
@@ -1300,7 +1463,7 @@ function GenerateInvoicePage() {
                         Cantidad: {Number(item.quantity)} | Precio: {formatMoney(item.unitPrice)} | Tipo: {item.saleType}
                       </p>
                       <p className="text-sm text-gray-500">
-                        Subtotal: {formatMoney(item.subtotal)} | IVA: {formatMoney(item.iva)} | Total: {formatMoney(item.total)}
+                        Subtotal: {formatMoney(item.subtotal)} | IVA: {formatMoney(item.iva)} | Retención: {formatMoney(item.retention1)} | Total: {formatMoney(item.total)}
                       </p>
                     </div>
 
@@ -1371,6 +1534,32 @@ function GenerateInvoicePage() {
               </span>
             </div>
 
+            {canUseIvaRetention && (
+              <div className="rounded-xl border bg-gray-50 p-3 text-xs text-gray-600 space-y-2">
+                <p>
+                  Base gravada para retención: <strong>{formatMoney(automaticRetentionBase)}</strong>. La retención 1% solo aplica si supera $100.00.
+                </p>
+                {applyRetention1 ? (
+                  <button
+                    type="button"
+                    onClick={handleRemoveRetention}
+                    className="w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2 font-semibold text-red-700 hover:bg-red-100"
+                  >
+                    Quitar retención 1%
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleApplyRetention}
+                    disabled={automaticRetentionBase <= IVA_RETENTION_THRESHOLD}
+                    className="w-full rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 font-semibold text-blue-900 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Aplicar retención 1%
+                  </button>
+                )}
+              </div>
+            )}
+
             {usesFuelTaxes && (
               <>
                 <div className="flex justify-between gap-4">
@@ -1404,6 +1593,28 @@ function GenerateInvoicePage() {
               ? isEditMode ? 'Guardando...' : 'Generando...'
               : isEditMode ? 'Guardar cambios' : 'Generar DTE'}
           </button>
+
+          {correctionRequiredMessage && (
+            <div className="mt-4 bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-800 flex gap-2">
+              <AlertTriangle size={18} className="shrink-0" />
+              <div>
+                <p className="font-semibold">Corrección requerida</p>
+                <p>{correctionRequiredMessage}</p>
+              </div>
+            </div>
+          )}
+
+          {(generatedInvoice?.id || editInvoiceId) && ['GENERADO', 'RECHAZADO', undefined].includes(generatedInvoice?.status) && (
+            <button
+              type="button"
+              onClick={handleTransmitGeneratedInvoice}
+              disabled={transmittingGeneratedInvoice || generating}
+              className="mt-3 w-full inline-flex items-center justify-center gap-2 bg-blue-900 text-white rounded-xl px-5 py-3 font-semibold hover:bg-blue-800 disabled:opacity-70"
+            >
+              {transmittingGeneratedInvoice ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} />}
+              {transmittingGeneratedInvoice ? 'Enviando a Hacienda...' : 'Enviar a Hacienda'}
+            </button>
+          )}
 
           {hasUnsavedData && (
             <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-sm text-yellow-900 flex gap-2">

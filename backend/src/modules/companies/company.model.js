@@ -37,6 +37,13 @@ const Company = sequelize.define('Company', {
     field: 'logo_data_url'
   },
 
+  useLogoInPdf: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true,
+    field: 'use_logo_in_pdf'
+  },
+
   economicActivityCode: {
     type: DataTypes.STRING(10),
     allowNull: false,
