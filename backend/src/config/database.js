@@ -15,12 +15,15 @@ const sequelize = new Sequelize(
     dialect: 'mysql',
     logging: process.env.NODE_ENV === 'development' ? console.log : false,
     timezone: '-06:00',
+    dialectOptions: {
+      connectTimeout: Number(process.env.DB_CONNECT_TIMEOUT_MS || 15000)
+    },
     pool: {
-      max: Number(process.env.DB_POOL_MAX || 5),
+      max: Number(process.env.DB_POOL_MAX || 4),
       min: Number(process.env.DB_POOL_MIN || 0),
       acquire: Number(process.env.DB_POOL_ACQUIRE_MS || 30000),
-      idle: Number(process.env.DB_POOL_IDLE_MS || 10000),
-      evict: Number(process.env.DB_POOL_EVICT_MS || 10000)
+      idle: Number(process.env.DB_POOL_IDLE_MS || 5000),
+      evict: Number(process.env.DB_POOL_EVICT_MS || 5000)
     },
     define: {
       timestamps: true,

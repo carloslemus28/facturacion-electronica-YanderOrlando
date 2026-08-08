@@ -205,9 +205,6 @@ const Customer = sequelize.define('Customer', {
     },
     {
       fields: ['email']
-    },
-    {
-      fields: ['secondary_email']
     }
   ]
 });

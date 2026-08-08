@@ -1,4 +1,4 @@
-const { Op, literal } = require('sequelize');
+const { Op, literal, fn, col } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
 const { sequelize } = require('../../config/database');
 
@@ -801,6 +801,40 @@ const buildInvoiceVisibilityInclude = (user) => {
   }
 
   return pointOfSaleInclude;
+};
+
+const buildScopedInvoiceWhere = async (user, extraWhere = {}) => {
+  const where = {
+    companyId: user.company.id,
+    ...extraWhere
+  };
+
+  if (!isAdminUser(user)) {
+    const establishmentId = getUserEstablishmentId(user);
+
+    if (!establishmentId) {
+      const error = new Error('El usuario no tiene establecimiento o sucursal asignada');
+      error.statusCode = 403;
+      throw error;
+    }
+
+    const pointsOfSale = await PointOfSale.findAll({
+      attributes: ['id'],
+      where: {
+        companyId: user.company.id,
+        establishmentId
+      },
+      raw: true
+    });
+
+    const pointOfSaleIds = pointsOfSale.map((pointOfSale) => pointOfSale.id);
+
+    where.pointOfSaleId = pointOfSaleIds.length > 0
+      ? { [Op.in]: pointOfSaleIds }
+      : -1;
+  }
+
+  return where;
 };
 
 
@@ -1625,25 +1659,36 @@ const getDashboardSummary = async ({ user }) => {
     throw error;
   }
 
-  const invoices = await Invoice.findAll({
+  const issuedAt = getCurrentMonthIssuedAtRange();
+  const where = await buildScopedInvoiceWhere(currentUser, { issuedAt });
+
+  const groupedRows = await Invoice.findAll({
+    attributes: [
+      'status',
+      [fn('COUNT', col('Invoice.id')), 'documentsCount'],
+      [fn('COALESCE', fn('SUM', col('Invoice.total')), 0), 'amountTotal']
+    ],
+    where,
+    group: ['status'],
+    raw: true
+  });
+
+  const recentInvoices = await Invoice.findAll({
     attributes: INVOICE_LIST_ATTRIBUTES,
-    where: {
-      companyId: currentUser.company.id,
-      issuedAt: getCurrentMonthIssuedAtRange()
-    },
+    where,
     include: [
       {
         model: Customer,
         as: 'customer',
         attributes: CUSTOMER_LIST_ATTRIBUTES
-      },
-      buildInvoiceVisibilityInclude(currentUser)
+      }
     ],
-    order: [['issuedAt', 'DESC']]
+    order: [['issuedAt', 'DESC'], ['id', 'DESC']],
+    limit: 5
   });
 
   const summary = {
-    totalDocuments: invoices.length,
+    totalDocuments: 0,
     generated: 0,
     signed: 0,
     transmitted: 0,
@@ -1653,38 +1698,37 @@ const getDashboardSummary = async ({ user }) => {
     totalAmount: 0,
     generatedAmount: 0,
     acceptedAmount: 0,
-    recentInvoices: invoices.slice(0, 5)
+    recentInvoices
   };
 
-  for (const invoice of invoices) {
-    const total = Number(invoice.total || 0);
+  const statusCounters = {
+    GENERADO: 'generated',
+    FIRMADO: 'signed',
+    TRANSMITIDO: 'transmitted',
+    ACEPTADO: 'accepted',
+    RECHAZADO: 'rejected',
+    ANULADO: 'annulled'
+  };
 
-    summary.totalAmount += total;
+  for (const row of groupedRows) {
+    const status = row.status;
+    const count = Number(row.documentsCount || 0);
+    const amount = Number(row.amountTotal || 0);
+    const counter = statusCounters[status];
 
-    if (invoice.status === 'GENERADO') {
-      summary.generated += 1;
-      summary.generatedAmount += total;
+    summary.totalDocuments += count;
+    summary.totalAmount += amount;
+
+    if (counter) {
+      summary[counter] = count;
     }
 
-    if (invoice.status === 'FIRMADO') {
-      summary.signed += 1;
+    if (status === 'GENERADO') {
+      summary.generatedAmount = amount;
     }
 
-    if (invoice.status === 'TRANSMITIDO') {
-      summary.transmitted += 1;
-    }
-
-    if (invoice.status === 'ACEPTADO') {
-      summary.accepted += 1;
-      summary.acceptedAmount += total;
-    }
-
-    if (invoice.status === 'RECHAZADO') {
-      summary.rejected += 1;
-    }
-
-    if (invoice.status === 'ANULADO') {
-      summary.annulled += 1;
+    if (status === 'ACEPTADO') {
+      summary.acceptedAmount = amount;
     }
   }
 

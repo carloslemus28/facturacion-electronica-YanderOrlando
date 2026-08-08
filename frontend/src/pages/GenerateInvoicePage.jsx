@@ -1005,20 +1005,20 @@ function GenerateInvoicePage() {
     try {
       setGenerating(true);
 
-      const data = isEditMode
-        ? await updateGeneratedInvoiceRequest(editInvoiceId, payload)
+      const invoiceIdToUpdate = generatedInvoice?.id || editInvoiceId;
+      const data = invoiceIdToUpdate
+        ? await updateGeneratedInvoiceRequest(invoiceIdToUpdate, payload)
         : await generateInvoiceRequest(payload);
 
       toast.success(
-        data.message || (isEditMode ? 'DTE actualizado correctamente' : 'DTE generado correctamente')
+        data.message || (invoiceIdToUpdate ? 'DTE actualizado correctamente' : 'DTE generado correctamente')
       );
 
       const invoice = data.invoice || null;
 
       if (invoice?.id) {
         setGeneratedInvoice(invoice);
-        editLoadedRef.current = false;
-        navigate(`/generate?edit=${invoice.id}`, { replace: true });
+        editLoadedRef.current = true;
       }
 
       await loadData();
@@ -1056,7 +1056,11 @@ function GenerateInvoicePage() {
       resetForm();
       editLoadedRef.current = false;
       originalEditProductQuantitiesRef.current = {};
-      navigate('/generate', { replace: true });
+
+      if (isEditMode) {
+        navigate('/invoices/generate', { replace: true });
+      }
+
       await loadData();
     } catch (error) {
       console.error('Error transmitiendo DTE desde Generar DTE:', error);
@@ -1590,8 +1594,8 @@ function GenerateInvoicePage() {
           >
             {generating ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />}
             {generating
-              ? isEditMode ? 'Guardando...' : 'Generando...'
-              : isEditMode ? 'Guardar cambios' : 'Generar DTE'}
+              ? (isEditMode || generatedInvoice?.id) ? 'Guardando...' : 'Generando...'
+              : (isEditMode || generatedInvoice?.id) ? 'Guardar cambios del DTE' : 'Generar DTE'}
           </button>
 
           {correctionRequiredMessage && (
